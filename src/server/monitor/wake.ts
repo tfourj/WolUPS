@@ -6,7 +6,7 @@ import { createLogger } from "../logger";
 import { getSettings } from "../settings";
 import { wakeDevice } from "../wol/send";
 import { openOutage } from "./outages";
-import { planWake } from "./rules";
+import { MAX_WAKE_WAIT_MS, planWake, wakeConditions } from "./rules";
 
 const log = createLogger("wake");
 
@@ -26,7 +26,8 @@ export function scheduleWakes() {
 /** Wakes devices that were online before a finished outage. */
 export async function processWakes(now = Date.now()) {
   const s = getSettings().wake;
-  const windowMs = (s.restoreDelaySec + s.clientTimeoutSec + 60) * 1000;
+  // Devices may wait hours for a high battery level, plus the timeout after the first wake packet.
+  const windowMs = MAX_WAKE_WAIT_MS + s.clientTimeoutSec * 1000 + 60_000;
   const recent = db
     .select()
     .from(outages)
@@ -36,6 +37,13 @@ export async function processWakes(now = Date.now()) {
   for (const outage of recent) {
     const upsRow = db.select().from(ups).where(eq(ups.id, outage.upsId)).get();
     if (!upsRow) continue;
+    // A newer outage on the same UPS takes over; its own device list decides who gets woken.
+    const newer = db
+      .select({ id: outages.id })
+      .from(outages)
+      .where(and(eq(outages.upsId, outage.upsId), gt(outages.startedAt, outage.startedAt)))
+      .get();
+    if (newer) continue;
     const upsOnline = !openOutage(upsRow.id) && upsRow.reachable;
     const pending = db
       .select({ od: outageDevices, device: devices })
@@ -62,6 +70,7 @@ export async function processWakes(now = Date.now()) {
           shutdownAcked: od.shutdownAckedAt !== null,
           wasOnline: od.wasOnline,
           wakeAttempts: od.wakeAttempts,
+          firstWakeAt: od.firstWakeAt?.getTime() ?? null,
           lastWakeAt: od.lastWakeAt?.getTime() ?? null,
         },
         s,
@@ -87,12 +96,31 @@ export async function processWakes(now = Date.now()) {
           deviceId: device.id,
           upsId: upsRow.id,
           title: `${device.name} did not come back`,
-          message: `${device.name} is still offline ${s.clientTimeoutSec}s after power was restored (${od.wakeAttempts} wake attempts)`,
+          message:
+            `${device.name} is still offline ${s.clientTimeoutSec}s after the first wake packet ` +
+            `(${od.wakeAttempts} attempts)`,
           data: { device: device.name, ups: upsRow.name, attempts: od.wakeAttempts },
+        });
+      } else if (action === "expired") {
+        db.update(outageDevices).set({ wakeGaveUpAt: new Date(now) }).where(where).run();
+        const { minBatteryPercent } = wakeConditions(device, s);
+        emitEvent({
+          type: "wake_failed",
+          deviceId: device.id,
+          upsId: upsRow.id,
+          title: `${device.name} was not woken`,
+          message:
+            `${device.name} was not woken: ${upsRow.name} did not reach ${minBatteryPercent}% ` +
+            `on line power within 24 hours`,
+          data: { device: device.name, ups: upsRow.name, battery: upsRow.battery, threshold: minBatteryPercent },
         });
       } else if (action === "send") {
         db.update(outageDevices)
-          .set({ wakeAttempts: od.wakeAttempts + 1, lastWakeAt: new Date(now) })
+          .set({
+            wakeAttempts: od.wakeAttempts + 1,
+            firstWakeAt: od.firstWakeAt ?? new Date(now),
+            lastWakeAt: new Date(now),
+          })
           .where(where)
           .run();
         const result = await wakeDevice(device);

@@ -33,11 +33,20 @@ describe("planWake", () => {
     restoredAt: 0,
     upsOnline: true,
     upsBattery: 50,
-    device: { enabled: true, wakeEnabled: true, alwaysWake: false, mac: "aa:bb:cc:dd:ee:ff", online: false },
+    device: {
+      enabled: true,
+      wakeEnabled: true,
+      alwaysWake: false,
+      mac: "aa:bb:cc:dd:ee:ff",
+      online: false,
+      wakeDelaySec: null,
+      wakeMinBatteryPercent: null,
+    },
     lastSeenAt: null,
     shutdownAcked: true,
     wasOnline: true,
     wakeAttempts: 0,
+    firstWakeAt: null,
     lastWakeAt: null,
   };
 
@@ -57,10 +66,26 @@ describe("planWake", () => {
     expect(planWake({ ...base, device: { ...base.device, mac: null } }, settings)).toBe("skip");
   });
 
-  test("respects the retry delay and gives up after the timeout", () => {
-    expect(planWake({ ...base, wakeAttempts: 1, lastWakeAt: 90_000 }, settings)).toBe("wait");
-    expect(planWake({ ...base, wakeAttempts: 1, lastWakeAt: 50_000 }, settings)).toBe("send");
-    expect(planWake({ ...base, now: 700_000 }, settings)).toBe("give_up");
+  test("respects the retry delay and gives up after the timeout from the first wake packet", () => {
+    const sent = { ...base, wakeAttempts: 1, firstWakeAt: 50_000 };
+    expect(planWake({ ...sent, lastWakeAt: 90_000 }, settings)).toBe("wait");
+    expect(planWake({ ...sent, lastWakeAt: 50_000 }, settings)).toBe("send");
+    expect(planWake({ ...sent, now: 700_000, lastWakeAt: 680_000 }, settings)).toBe("give_up");
+    // Without a wake packet yet, the same delay is not a give-up.
+    expect(planWake({ ...base, now: 700_000 }, settings)).toBe("send");
+  });
+
+  test("uses per-device delay and battery level over the global settings", () => {
+    const picky = { ...base, device: { ...base.device, wakeDelaySec: 120, wakeMinBatteryPercent: 80 } };
+    expect(planWake({ ...picky, now: 60_000 }, settings)).toBe("wait");
+    expect(planWake({ ...picky, now: 130_000, upsBattery: 50 }, settings)).toBe("wait");
+    expect(planWake({ ...picky, now: 130_000, upsBattery: 80 }, settings)).toBe("send");
+  });
+
+  test("stops waiting after 24 hours when conditions are never met", () => {
+    const picky = { ...base, device: { ...base.device, wakeMinBatteryPercent: 90 }, upsBattery: 60 };
+    expect(planWake({ ...picky, now: 23 * 3_600_000 }, settings)).toBe("wait");
+    expect(planWake({ ...picky, now: 25 * 3_600_000 }, settings)).toBe("expired");
   });
 
   test("a stale online flag does not count after an accepted shutdown", () => {

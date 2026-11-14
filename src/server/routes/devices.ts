@@ -81,6 +81,8 @@ const deviceSchema = z.object({
   shutdownRuntimeSec: z.number().int().min(0).max(86400).nullish(),
   wakeEnabled: z.boolean().default(true),
   alwaysWake: z.boolean().default(false),
+  wakeDelaySec: z.number().int().min(0).max(86400).nullish(),
+  wakeMinBatteryPercent: z.number().int().min(0).max(100).nullish(),
 });
 
 deviceRoutes.get("/", (c) => {
