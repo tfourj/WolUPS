@@ -25,14 +25,14 @@ export function BatteryChart({ upsId, range }: { upsId: string; range: string })
 
   if (points.length < 2) {
     return (
-      <div className="text-muted-foreground grid h-56 place-items-center text-sm">
+      <div className="text-muted-foreground grid h-72 place-items-center text-sm">
         Not enough data yet
       </div>
     );
   }
 
   return (
-    <ResponsiveContainer width="100%" height={224}>
+    <ResponsiveContainer width="100%" height={288}>
       <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
         <defs>
           <linearGradient id="batteryFill" x1="0" y1="0" x2="0" y2="1">
