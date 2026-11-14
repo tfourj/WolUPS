@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { DEFAULT_TEMPLATE, EVENT_LABELS, EVENT_TYPES, TEMPLATE_VARIABLES, type EventType } from "@shared/events";
 import { Field } from "@/components/common";
 import { TemplatePreview } from "@/components/TemplatePreview";
+import { TimeSettings } from "@/components/TimeSettings";
 import { WAKE_DELIVERY_KEY, WakeDeliveryStatus } from "@/components/WakeDeliveryStatus";
 import { Button } from "@/components/ui/button";
 import {
@@ -154,6 +155,12 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
           </Button>
         </CardFooter>
       </Card>
+
+      <TimeSettings
+        time={data.settings.time}
+        serverTimezone={sys.timezone}
+        onSave={(time) => onSave({ time })}
+      />
     </div>
   );
 }

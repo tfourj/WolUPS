@@ -1,5 +1,6 @@
 import type { EventType, Severity } from "@shared/events";
 import type { ChannelType } from "@shared/channels";
+import type { TimePreferences } from "@shared/time";
 
 export type Outage = {
   id: string;
@@ -154,6 +155,7 @@ export type AppSettings = {
   agentUpdateCheckMinutes: number;
   eventRetentionDays: number;
   sampleRetentionDays: number;
+  time: TimePreferences;
   templates: Record<string, { title: string; body: string }>;
 };
 

@@ -1,4 +1,5 @@
 import { DEFAULT_TEMPLATE, type EventType } from "./events";
+import { formatEventTime, type TimeFormat } from "./time";
 
 export type TemplateVars = Record<string, string>;
 
@@ -135,22 +136,29 @@ const SAMPLES: Record<EventType, Sample> = {
   },
 };
 
+/** Timezone and clock used for `{time}`, as the server would format it. */
+export type TimeOptions = { timeZone?: string; timeFormat?: TimeFormat };
+
 /** Variables for an example event of the given type, as the server would build them. */
-export function sampleTemplateVars(eventType: EventType, now = new Date()): TemplateVars {
+export function sampleTemplateVars(eventType: EventType, now = new Date(), time: TimeOptions = {}): TemplateVars {
   const sample = SAMPLES[eventType];
-  const time = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "medium" }).format(now);
   return {
     ...SAMPLE_VARS,
     ...sample.vars,
     event: eventType,
     title: sample.title,
     message: sample.message,
-    time,
+    time: formatEventTime(now, time.timeZone, time.timeFormat),
   } as TemplateVars;
 }
 
 /** Render a template against an example event of the given type. */
-export function previewTemplate(eventType: EventType, template: Template, now = new Date()): Template {
-  const vars = sampleTemplateVars(eventType, now);
+export function previewTemplate(
+  eventType: EventType,
+  template: Template,
+  now = new Date(),
+  time: TimeOptions = {},
+): Template {
+  const vars = sampleTemplateVars(eventType, now, time);
   return { title: renderTemplate(template.title, vars), body: renderTemplate(template.body, vars) };
 }

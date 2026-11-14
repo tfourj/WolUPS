@@ -1,13 +1,13 @@
 import { formatRuntime } from "../format";
+import { getSettings } from "../settings";
 import type { EventType } from "../../shared/events";
 import type { TemplateVars } from "../../shared/templates";
+import { formatEventTime } from "../../shared/time";
 
+/** Event time in the chosen timezone and clock, falling back to `TZ`. */
 export function formatTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: process.env.TZ || undefined,
-  }).format(date);
+  const { timezone, timeFormat } = getSettings().time;
+  return formatEventTime(date, timezone ?? (process.env.TZ || undefined), timeFormat);
 }
 
 export type TemplateEvent = {

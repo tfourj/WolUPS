@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "@/lib/api";
+import { formatDateTime, withTimePreferences } from "@/lib/format";
 import type { Sample } from "@/lib/types";
 
 const RANGE_HOURS: Record<string, number> = { "6h": 6, "24h": 24, "7d": 168, "30d": 720 };
@@ -9,8 +10,8 @@ function tickFormatter(range: string) {
   return (value: number) => {
     const d = new Date(value);
     return RANGE_HOURS[range] > 24
-      ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-      : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      ? d.toLocaleDateString(undefined, withTimePreferences({ month: "short", day: "numeric" }))
+      : d.toLocaleTimeString(undefined, withTimePreferences({ hour: "2-digit", minute: "2-digit" }));
   };
 }
 
@@ -65,7 +66,7 @@ export function BatteryChart({ upsId, range }: { upsId: string; range: string })
             borderRadius: 8,
             fontSize: 12,
           }}
-          labelFormatter={(v) => new Date(v as number).toLocaleString()}
+          labelFormatter={(v) => formatDateTime(v as number)}
           formatter={(value, name) => [`${value}%`, name === "battery" ? "Battery" : "Load"]}
         />
         <Area type="monotone" dataKey="battery" stroke="var(--chart-2)" fill="url(#batteryFill)" strokeWidth={2} />

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db/client";
 import { settings } from "./db/schema";
+import { DEFAULT_TIME_PREFERENCES, TIME_FORMATS, TIME_STYLES, isValidTimeZone } from "../shared/time";
 
 export const appSettingsSchema = z.object({
   pollIntervalSec: z.number().int().min(2).max(300).default(10),
@@ -20,6 +21,13 @@ export const appSettingsSchema = z.object({
   agentUpdateCheckMinutes: z.number().int().min(5).max(1440).default(15),
   eventRetentionDays: z.number().int().min(1).max(3650).default(90),
   sampleRetentionDays: z.number().int().min(1).max(365).default(30),
+  time: z
+    .object({
+      timezone: z.string().refine(isValidTimeZone, "Unknown timezone").nullable().default(null),
+      timeFormat: z.enum(TIME_FORMATS).default("auto"),
+      timeStyle: z.enum(TIME_STYLES).default("relative"),
+    })
+    .default(DEFAULT_TIME_PREFERENCES),
   templates: z.record(z.string(), z.object({ title: z.string(), body: z.string() })).default({}),
 });
 

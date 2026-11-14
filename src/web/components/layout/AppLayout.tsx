@@ -15,6 +15,7 @@ import {
   Sun,
   Zap,
 } from "lucide-react";
+import { DEFAULT_TIME_PREFERENCES } from "@shared/time";
 import { GitHubIcon } from "@/components/GitHubIcon";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +31,9 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { setTimePreferences } from "@/lib/format";
 import { useTheme, type Theme } from "@/lib/theme";
+import type { AppSettings, SystemInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -158,6 +161,14 @@ function UserMenu() {
 
 export function AppLayout() {
   const [open, setOpen] = useState(false);
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => api.get<{ settings: AppSettings; system: SystemInfo }>("/settings"),
+  });
+  const time = settings?.settings.time ?? DEFAULT_TIME_PREFERENCES;
+  setTimePreferences(time, settings?.system.timezone);
+  // Formatters read the time display when they run, so pages are remounted to pick up a change.
+  const timeKey = `${time.timezone}|${time.timeFormat}|${time.timeStyle}`;
   return (
     <div className="flex min-h-svh">
       <aside className="bg-sidebar border-sidebar-border sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r p-3 md:flex">
@@ -197,7 +208,7 @@ export function AppLayout() {
           <Brand />
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 md:p-8">
-          <Outlet />
+          <Outlet key={timeKey} />
         </main>
       </div>
     </div>
