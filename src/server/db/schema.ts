@@ -130,6 +130,9 @@ export const devices = sqliteTable("devices", {
   shutdownRuntimeSec: integer(),
   wakeEnabled: bool().notNull().default(true),
   alwaysWake: bool().notNull().default(false),
+  // Per-device wake conditions; null uses the global wake settings.
+  wakeDelaySec: integer(),
+  wakeMinBatteryPercent: integer(),
   online: bool().notNull().default(false),
   lastSeenAt: ts(),
   createdAt: ts().notNull().default(now),
@@ -152,6 +155,7 @@ export const outageDevices = sqliteTable(
     shutdownError: text(),
     shutdownFailureNotified: bool().notNull().default(false),
     wakeAttempts: integer().notNull().default(0),
+    firstWakeAt: ts(),
     lastWakeAt: ts(),
     recoveredAt: ts(),
     wakeGaveUpAt: ts(),
