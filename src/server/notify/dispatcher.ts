@@ -8,7 +8,8 @@ import { DEFAULT_EVENT_SEVERITY, type EventType, type Severity } from "../../sha
 import { decryptConfig, isChannelType, type ChannelRow } from "./channels";
 import { providers } from "./providers";
 import type { NotificationMessage } from "./providers/types";
-import { renderTemplate, resolveTemplate, templateVars } from "./templates";
+import { renderTemplate, resolveTemplate } from "../../shared/templates";
+import { templateVars } from "./templates";
 
 const log = createLogger("notify");
 

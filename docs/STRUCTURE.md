@@ -11,6 +11,7 @@ WolUPS/
 │   ├── shared/                      Code used by both server and UI
 │   │   ├── events.ts                Event types, labels, severities, template variables
 │   │   ├── channels.ts              Notification channel types and their config fields
+│   │   ├── templates.ts             Template rendering and resolution
 │   │   └── version.ts               Version comparison
 │   ├── server/
 │   │   ├── index.ts                 Entry point: Hono app, WebSocket, background jobs

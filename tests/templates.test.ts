@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { renderTemplate, resolveTemplate, templateVars } from "../src/server/notify/templates";
+import { templateVars } from "../src/server/notify/templates";
+import { renderTemplate, resolveTemplate } from "../src/shared/templates";
 
 describe("templates", () => {
   test("replaces known variables and keeps unknown ones", () => {
