@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import { db } from "../db/client";
-import { agents, devices } from "../db/schema";
+import { agents, commands, devices } from "../db/schema";
 import { env } from "../env";
 import { emitEvent } from "../events";
 import { createLogger } from "../logger";
@@ -146,7 +146,20 @@ export async function checkAgentUpdateNow(agentId: string): Promise<UpdateCheck>
     return { ok: true, status: "current", version: agent.version, latestVersion: latest.version };
   }
 
-  const command = requestAgentUpdate(agent.id);
+  // Join an update that is already running (automatic, or an earlier click) instead of starting another.
+  const running = db
+    .select()
+    .from(commands)
+    .where(
+      and(
+        eq(commands.agentId, agent.id),
+        eq(commands.type, "update"),
+        inArray(commands.status, ["pending", "sent"]),
+        gt(commands.expiresAt, new Date()),
+      ),
+    )
+    .get();
+  const command = running ?? requestAgentUpdate(agent.id);
   const ack = await agentHub.waitForAck(command.id, UPDATE_WAIT_MS);
   if (!ack.ok) return { ok: false, error: ack.error ?? "update failed" };
   const latestVersion = typeof ack.result?.latestVersion === "string" ? ack.result.latestVersion : latest.version;

@@ -36,7 +36,7 @@ type AckHook = (command: CommandRow, ack: AckResult) => void;
 
 class AgentHub {
   private sessions = new Map<string, Conn>();
-  private waiters = new Map<string, (ack: AckResult) => void>();
+  private waiters = new Map<string, ((ack: AckResult) => void)[]>();
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private ackHooks: AckHook[] = [];
   private connectHooks: ((agentId: string) => void)[] = [];
@@ -189,8 +189,9 @@ class AgentHub {
       .where(eq(commands.id, row.id))
       .returning()
       .get();
-    this.waiters.get(row.id)?.(ack);
+    const waiting = this.waiters.get(row.id) ?? [];
     this.waiters.delete(row.id);
+    for (const resolve of waiting) resolve(ack);
     for (const hook of this.ackHooks) {
       try {
         hook(updated, ack);
@@ -259,16 +260,20 @@ class AgentHub {
     return true;
   }
 
+  /** Wait for a command's answer. Several callers can wait on the same command. */
   waitForAck(commandId: string, timeoutMs: number): Promise<AckResult> {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.waiters.delete(commandId);
-        resolve({ ok: false, error: "agent did not respond in time", timedOut: true });
-      }, timeoutMs);
-      this.waiters.set(commandId, (ack) => {
+      const done = (ack: AckResult) => {
         clearTimeout(timer);
         resolve(ack);
-      });
+      };
+      const timer = setTimeout(() => {
+        const rest = (this.waiters.get(commandId) ?? []).filter((w) => w !== done);
+        if (rest.length) this.waiters.set(commandId, rest);
+        else this.waiters.delete(commandId);
+        resolve({ ok: false, error: "agent did not respond in time", timedOut: true });
+      }, timeoutMs);
+      this.waiters.set(commandId, [...(this.waiters.get(commandId) ?? []), done]);
     });
   }
 
