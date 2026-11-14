@@ -135,6 +135,7 @@ agentHub.onAck((command, ack) => {
       .run();
   }
   if (ack.ok) {
+    db.update(devices).set({ online: false }).where(eq(devices.id, device.id)).run();
     emitEvent({
       type: "shutdown_acknowledged",
       deviceId: device.id,
