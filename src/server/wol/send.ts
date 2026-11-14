@@ -1,3 +1,4 @@
+import { networkInterfaces } from "node:os";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
 import { agents, devices } from "../db/schema";
@@ -13,6 +14,34 @@ const log = createLogger("wol");
 type DeviceRow = typeof devices.$inferSelect;
 
 export type WakeResult = { ok: boolean; via: string[]; errors: string[] };
+
+/** IPv4 networks the server itself is on. With Docker bridge networking these are only Docker's. */
+export function serverNetworks(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === "IPv4" && !a.internal)
+    .map((a) => a!.cidr!)
+    .filter(Boolean);
+}
+
+/**
+ * Send a magic packet from the server to the configured broadcast address and, when the server
+ * is on the device's subnet, to that subnet's broadcast address too. Returns an error or null.
+ */
+export async function sendFromServer(mac: string, broadcast: string, ip: string | null): Promise<string | null> {
+  const subnets = ip ? serverNetworks().filter((n) => cidrContains(n, ip)) : [];
+  const targets = [...new Set([broadcast, ...subnets.map((n) => parseCidr(n)?.broadcast ?? "")].filter(Boolean))];
+  const errors: string[] = [];
+  for (const target of targets) {
+    try {
+      await sendMagicPacket(mac, target);
+      return null;
+    } catch (error) {
+      errors.push(`${target}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return errors.join("; ");
+}
 
 export type Relay = { agentId: string; name: string; broadcast: string; sameSubnet: boolean };
 
@@ -49,17 +78,14 @@ export async function wakeDevice(device: DeviceRow): Promise<WakeResult> {
   const { wolMode, wolBroadcast } = getSettings();
   const result: WakeResult = { ok: false, via: [], errors: [] };
 
+  const ip = await resolveIpv4(device.host);
   if (wolMode !== "agent") {
-    try {
-      await sendMagicPacket(device.mac, wolBroadcast);
-      result.via.push("server");
-    } catch (error) {
-      result.errors.push(`server: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const error = await sendFromServer(device.mac, wolBroadcast, ip);
+    if (error) result.errors.push(`server: ${error}`);
+    else result.via.push("server");
   }
 
   if (wolMode !== "server") {
-    const ip = await resolveIpv4(device.host);
     for (const relay of relayCandidates(device, ip).slice(0, 2)) {
       const args = { mac: device.mac, broadcast: relay.broadcast };
       const ack = await agentHub.sendAndWait(relay.agentId, "wol", args, 10_000);
