@@ -23,7 +23,14 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "sqlite", schema: { user, session, account, verification, twoFactor } }),
   emailAndPassword: { enabled: true, minPasswordLength: 8, autoSignIn: true },
   trustedOrigins: [env.baseUrl, ...devOrigins],
-  session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24,
+    additionalFields: {
+      lastActiveAt: { type: "date", required: false, input: false },
+      lastIp: { type: "string", required: false, input: false },
+    },
+  },
   rateLimit: {
     enabled: true,
     window: 60,
