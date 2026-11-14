@@ -124,6 +124,11 @@ const SAMPLES: Record<EventType, Sample> = {
     message: "Agent on nas could not update: checksum mismatch",
     vars: AGENT_VARS,
   },
+  login: {
+    title: "New sign-in to WolUPS",
+    message: "admin@example.com signed in with password and authenticator app from Chrome on macOS (203.0.113.7)",
+    vars: { ...AGENT_VARS, device: "", version: "" },
+  },
   test: {
     title: "WolUPS test notification",
     message: 'This is a test from WolUPS for channel "Phone".',
