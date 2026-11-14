@@ -284,3 +284,22 @@ func TestRepeatLogThrottles(t *testing.T) {
 		t.Fatal("new message not logged")
 	}
 }
+
+func TestWriteUnitOnlyWhenChanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wolups-agent.service")
+	os.WriteFile(path, []byte("[Service]\nExecStart=/old\n"), 0o644)
+	reloads := 0
+	reload := func() error { reloads++; return nil }
+
+	changed, err := writeUnit(path, reload)
+	if err != nil || !changed || reloads != 1 || !unitUpToDate(path) {
+		t.Fatalf("first write: changed=%v err=%v reloads=%d", changed, err, reloads)
+	}
+	changed, err = writeUnit(path, reload)
+	if err != nil || changed || reloads != 1 {
+		t.Fatalf("second write should be a no-op: changed=%v err=%v reloads=%d", changed, err, reloads)
+	}
+	if !strings.Contains(unitContent, "ExecStart=/usr/local/bin/wolups-agent serve") {
+		t.Fatal("unit does not start the installed binary")
+	}
+}

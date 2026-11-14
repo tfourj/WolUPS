@@ -30,6 +30,7 @@ Usage:
   wolups-agent serve
   wolups-agent status
   wolups-agent reset --confirm
+  wolups-agent install-unit
   wolups-agent version
 `
 
@@ -57,6 +58,8 @@ func main() {
 		err = runStatus(store)
 	case "reset":
 		err = runReset(store, os.Args[2:])
+	case "install-unit":
+		err = runInstallUnit()
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -178,6 +181,10 @@ func runServe(store *stateStore) error {
 	}
 	if err != nil {
 		return err
+	}
+	if repairUnit() {
+		// Non-zero exit makes systemd (Restart=on-failure) start the agent again under the new file.
+		os.Exit(75)
 	}
 	binaryPath, err := os.Executable()
 	if err != nil {
