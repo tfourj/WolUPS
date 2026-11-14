@@ -39,6 +39,7 @@ class AgentHub {
   private waiters = new Map<string, (ack: AckResult) => void>();
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private ackHooks: AckHook[] = [];
+  private connectHooks: ((agentId: string) => void)[] = [];
 
   /** Mark every agent offline on startup; live sessions reconnect on their own. */
   reset() {
@@ -47,6 +48,10 @@ class AgentHub {
 
   onAck(hook: AckHook) {
     this.ackHooks.push(hook);
+  }
+
+  onConnect(hook: (agentId: string) => void) {
+    this.connectHooks.push(hook);
   }
 
   isConnected(agentId: string) {
@@ -140,6 +145,13 @@ class AgentHub {
     conn.ws.send(JSON.stringify({ type: "welcome", deviceName: device?.name ?? "" }));
     log.info("agent connected", { agentId: agent.id, device: device?.name, version: msg.info.version, ip: conn.ip });
     this.flushPending(agent.id);
+    for (const hook of this.connectHooks) {
+      try {
+        hook(agent.id);
+      } catch (error) {
+        log.error("connect hook failed", { error });
+      }
+    }
   }
 
   private saveInfo(agentId: string, info: AgentInfo, extra: Partial<typeof agents.$inferInsert> = {}) {
