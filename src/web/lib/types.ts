@@ -172,4 +172,14 @@ export type SystemInfo = {
 
 export type SecurityStatus = { twoFactorEnabled: boolean; loginChannelIds: string[] };
 
+export type SignedInDevice = {
+  id: string;
+  name: string;
+  userAgent: string | null;
+  ip: string | null;
+  signedInAt: string;
+  lastActiveAt: string;
+  current: boolean;
+};
+
 export type LoginTestResult = { results: { id: string; name: string; ok: boolean; error: string | null }[] };
