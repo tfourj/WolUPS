@@ -68,7 +68,6 @@ function loadEnv() {
     webDir: resolve(process.env.WEB_DIR ?? "./dist/web"),
     migrationsDir: resolve(process.env.MIGRATIONS_DIR ?? "./drizzle"),
     agentRepo: process.env.AGENT_REPO ?? "tfourj/WolUPS",
-    version: process.env.APP_VERSION ?? "dev",
   };
 }
 
