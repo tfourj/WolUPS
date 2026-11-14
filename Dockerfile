@@ -16,13 +16,18 @@ RUN bun install --frozen-lockfile --production
 
 # --- Runtime ---
 FROM oven/bun:1.4.4-alpine
-ARG APP_VERSION=dev
+# Set by CI. Builds that are not a stable release show the short commit instead of the version.
+ARG WOLUPS_VERSION=""
+ARG WOLUPS_COMMIT=""
+ARG WOLUPS_RELEASE="false"
 ENV NODE_ENV=production \
     PORT=4321 \
     DATA_DIR=/data \
     WEB_DIR=/app/dist/web \
     MIGRATIONS_DIR=/app/drizzle \
-    APP_VERSION=${APP_VERSION}
+    WOLUPS_VERSION=${WOLUPS_VERSION} \
+    WOLUPS_COMMIT=${WOLUPS_COMMIT} \
+    WOLUPS_RELEASE=${WOLUPS_RELEASE}
 # iputils for device ping checks, tzdata so TZ works
 RUN apk add --no-cache iputils tzdata
 WORKDIR /app

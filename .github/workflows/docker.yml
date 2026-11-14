@@ -15,6 +15,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Tags to find the release version of this commit.
+          fetch-depth: 0
+      # Builds of a commit that carries a stable vX.Y.Z tag are releases and show the version, others the commit.
+      - name: Read build info
+        id: build
+        run: |
+          tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' 2>/dev/null || true)"
+          release=false
+          if [ -n "$tag" ] && git tag --points-at HEAD | grep -qx "$tag"; then release=true; fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "version: ${tag:-none}, release build: $release"
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -38,6 +51,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          build-args: |
+            WOLUPS_VERSION=${{ steps.build.outputs.version }}
+            WOLUPS_COMMIT=${{ github.sha }}
+            WOLUPS_RELEASE=${{ steps.build.outputs.release }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
