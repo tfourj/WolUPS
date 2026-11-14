@@ -208,6 +208,9 @@ export function DevicesPage() {
                   <TableCell className="hidden lg:table-cell">
                     <span className={d.wakeEnabled && d.mac ? "text-sm" : "text-muted-foreground text-sm"}>
                       {!d.wakeEnabled ? "Off" : !d.mac ? "No MAC" : d.alwaysWake ? "Always" : "If was online"}
+                      {d.wakeEnabled && d.mac && d.wakeMinBatteryPercent !== null && (
+                        <span className="text-muted-foreground block text-xs">above {d.wakeMinBatteryPercent}%</span>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell className="pr-4">

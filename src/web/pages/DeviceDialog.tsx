@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useAction } from "@/lib/mutations";
-import type { Device, Ups } from "@/lib/types";
+import type { AppSettings, Device, Ups } from "@/lib/types";
 
 type Form = {
   name: string;
@@ -23,9 +23,15 @@ type Form = {
   shutdownRuntimeSec: string;
   wakeEnabled: boolean;
   alwaysWake: boolean;
+  wakeDelaySec: string;
+  wakeMinBatteryPercent: string;
 };
 
 const NONE = "__none__";
+
+function optionalNumber(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : String(value);
+}
 
 function toForm(d?: Device): Form {
   return {
@@ -38,6 +44,8 @@ function toForm(d?: Device): Form {
     shutdownRuntimeSec: d?.shutdownRuntimeSec ? String(d.shutdownRuntimeSec) : "",
     wakeEnabled: d?.wakeEnabled ?? true,
     alwaysWake: d?.alwaysWake ?? false,
+    wakeDelaySec: optionalNumber(d?.wakeDelaySec),
+    wakeMinBatteryPercent: optionalNumber(d?.wakeMinBatteryPercent),
   };
 }
 
@@ -52,6 +60,12 @@ export function DeviceDialog({
 }) {
   const [form, setForm] = useState<Form>(toForm());
   const { data: upsList = [] } = useQuery({ queryKey: ["ups"], queryFn: () => api.get<Ups[]>("/ups") });
+  const { data: wakeDefaults } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => api.get<{ settings: AppSettings }>("/settings"),
+    select: (r) => r.settings.wake,
+    enabled: open,
+  });
 
   useEffect(() => {
     if (open) setForm(toForm(device));
@@ -100,6 +114,8 @@ export function DeviceDialog({
         shutdownRuntimeSec: form.shutdownRuntimeSec ? Number(form.shutdownRuntimeSec) : null,
         wakeEnabled: form.wakeEnabled,
         alwaysWake: form.alwaysWake,
+        wakeDelaySec: form.wakeDelaySec === "" ? null : Number(form.wakeDelaySec),
+        wakeMinBatteryPercent: form.wakeMinBatteryPercent === "" ? null : Number(form.wakeMinBatteryPercent),
       };
       return device ? api.patch(`/devices/${device.id}`, body) : api.post("/devices", body);
     },
@@ -200,9 +216,34 @@ export function DeviceDialog({
             <Switch checked={form.wakeEnabled} onCheckedChange={(v) => setForm({ ...form, wakeEnabled: v })} />
           </SwitchRow>
           {form.wakeEnabled && (
-            <SwitchRow label="Always wake" help="Wake even if it was offline before the outage">
-              <Switch checked={form.alwaysWake} onCheckedChange={(v) => setForm({ ...form, alwaysWake: v })} />
-            </SwitchRow>
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Wait after power returns (s)" htmlFor="dev-wake-delay">
+                  <Input
+                    id="dev-wake-delay"
+                    type="number"
+                    min={0}
+                    value={form.wakeDelaySec}
+                    onChange={set("wakeDelaySec")}
+                    placeholder={wakeDefaults ? `${wakeDefaults.restoreDelaySec} (default)` : "Default"}
+                  />
+                </Field>
+                <Field label="Only above UPS battery (%)" htmlFor="dev-wake-battery">
+                  <Input
+                    id="dev-wake-battery"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={form.wakeMinBatteryPercent}
+                    onChange={set("wakeMinBatteryPercent")}
+                    placeholder={wakeDefaults ? `${wakeDefaults.minBatteryPercent} (default)` : "Default"}
+                  />
+                </Field>
+              </div>
+              <SwitchRow label="Always wake" help="Wake even if it was offline before the outage">
+                <Switch checked={form.alwaysWake} onCheckedChange={(v) => setForm({ ...form, alwaysWake: v })} />
+              </SwitchRow>
+            </>
           )}
         </form>
         <DialogFooter>

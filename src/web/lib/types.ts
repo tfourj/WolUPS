@@ -78,6 +78,8 @@ export type Device = {
   shutdownRuntimeSec: number | null;
   wakeEnabled: boolean;
   alwaysWake: boolean;
+  wakeDelaySec: number | null;
+  wakeMinBatteryPercent: number | null;
   online: boolean;
   lastSeenAt: string | null;
   agent: Agent | null;
