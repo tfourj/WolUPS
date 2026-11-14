@@ -134,6 +134,8 @@ export const devices = sqliteTable("devices", {
   wakeDelaySec: integer(),
   wakeMinBatteryPercent: integer(),
   online: bool().notNull().default(false),
+  // Set when the device accepts a shutdown; cleared once it is really off (or after a timeout).
+  shuttingDownSince: ts(),
   lastSeenAt: ts(),
   createdAt: ts().notNull().default(now),
   updatedAt: ts().notNull().default(now),

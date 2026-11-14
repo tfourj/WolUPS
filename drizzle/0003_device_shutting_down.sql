@@ -1,0 +1,1 @@
+ALTER TABLE `devices` ADD `shutting_down_since` integer;
