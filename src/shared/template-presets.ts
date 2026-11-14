@@ -3,102 +3,165 @@ import type { Template } from "./templates";
 
 export type TemplatePreset = { id: string; label: string; templates: Record<EventType, Template> };
 
-const ICONS: Record<EventType, string> = {
-  ups_on_battery: "🔋",
-  ups_power_restored: "⚡",
-  ups_low_battery: "🪫",
-  ups_unreachable: "❌",
-  ups_reachable: "✅",
-  shutdown_sent: "🛑",
-  shutdown_acknowledged: "💤",
-  shutdown_failed: "⚠️",
-  wake_sent: "⏰",
-  wake_failed: "⚠️",
-  device_recovered: "🟢",
-  agent_connected: "🔗",
-  agent_disconnected: "🔌",
-  agent_enrolled: "🤝",
-  agent_update_available: "⬆️",
-  agent_updated: "✨",
-  agent_update_failed: "⚠️",
-  login: "🔐",
-  test: "🔔",
+type Detail =
+  | "ups"
+  | "device"
+  | "battery"
+  | "runtime"
+  | "status"
+  | "threshold"
+  | "version"
+  | "duration"
+  | "error"
+  | "via"
+  | "time";
+
+/** One line per value. Lines whose value is empty for an event are left out when rendering. */
+const DETAILS: Record<Detail, { icon: string; text: string }> = {
+  ups: { icon: "🔌", text: "{ups}" },
+  device: { icon: "🖥️", text: "{device}" },
+  battery: { icon: "🔋", text: "Battery {battery}" },
+  runtime: { icon: "⏱️", text: "Runtime {runtime}" },
+  status: { icon: "📊", text: "Status {status}" },
+  threshold: { icon: "🎯", text: "Threshold {threshold}" },
+  version: { icon: "🏷️", text: "Version {version}" },
+  duration: { icon: "⏳", text: "Outage {duration}" },
+  error: { icon: "❗", text: "{error}" },
+  via: { icon: "📡", text: "Via {via}" },
+  time: { icon: "🕒", text: "{time}" },
 };
 
-type Detail = "ups" | "device" | "battery" | "runtime" | "status" | "threshold" | "version" | "time";
-
-const DETAIL_LABELS: Record<Detail, { text: string; icon: string }> = {
-  ups: { text: "UPS:", icon: "🔌" },
-  device: { text: "Device:", icon: "🖥️" },
-  battery: { text: "Battery:", icon: "🔋" },
-  runtime: { text: "Runtime:", icon: "⏱️" },
-  status: { text: "Status:", icon: "📊" },
-  threshold: { text: "Threshold:", icon: "🎯" },
-  version: { text: "Version:", icon: "🏷️" },
-  time: { text: "Time:", icon: "🕒" },
+type EventSpec = {
+  icon: string;
+  /** The message in the template's own words. */
+  summary: string;
+  /** Values that matter most for the event. */
+  key: Detail[];
+  /** Further values shown by the detailed presets. */
+  more: Detail[];
 };
 
-const UPS_DETAILS: Detail[] = ["battery", "runtime", "status", "time"];
-const SHUTDOWN_DETAILS: Detail[] = ["ups", "battery", "threshold", "time"];
-const WAKE_DETAILS: Detail[] = ["ups", "battery", "time"];
-const AGENT_DETAILS: Detail[] = ["version", "time"];
-
-/** Variables each event carries beyond what its message already says. */
-const DETAILS: Record<EventType, Detail[]> = {
-  ups_on_battery: UPS_DETAILS,
-  ups_power_restored: UPS_DETAILS,
-  ups_low_battery: UPS_DETAILS,
-  ups_unreachable: ["time"],
-  ups_reachable: ["battery", "status", "time"],
-  shutdown_sent: SHUTDOWN_DETAILS,
-  shutdown_acknowledged: SHUTDOWN_DETAILS,
-  shutdown_failed: SHUTDOWN_DETAILS,
-  wake_sent: WAKE_DETAILS,
-  wake_failed: WAKE_DETAILS,
-  device_recovered: ["ups", "time"],
-  agent_connected: AGENT_DETAILS,
-  agent_disconnected: AGENT_DETAILS,
-  agent_enrolled: AGENT_DETAILS,
-  agent_update_available: AGENT_DETAILS,
-  agent_updated: AGENT_DETAILS,
-  agent_update_failed: AGENT_DETAILS,
-  login: ["time"],
-  test: ["ups", "device", "battery", "runtime", "status", "threshold", "time"],
+const EVENTS: Record<EventType, EventSpec> = {
+  ups_on_battery: {
+    icon: "🔋",
+    summary: "{ups} switched to battery power",
+    key: ["battery", "runtime"],
+    more: ["status", "time"],
+  },
+  ups_power_restored: {
+    icon: "⚡",
+    summary: "{ups} is back on line power",
+    key: ["duration", "battery"],
+    more: ["status", "time"],
+  },
+  ups_low_battery: {
+    icon: "🪫",
+    summary: "{ups} reports low battery",
+    key: ["battery", "runtime"],
+    more: ["status", "time"],
+  },
+  ups_unreachable: { icon: "❌", summary: "Cannot read {ups} from NUT", key: ["error"], more: ["time"] },
+  ups_reachable: { icon: "✅", summary: "{ups} is responding again", key: ["battery", "status"], more: ["time"] },
+  shutdown_sent: {
+    icon: "🛑",
+    summary: "Sending shutdown to {device}",
+    key: ["ups", "battery", "threshold"],
+    more: ["runtime", "time"],
+  },
+  shutdown_acknowledged: {
+    icon: "💤",
+    summary: "{device} accepted shutdown",
+    key: ["ups", "battery"],
+    more: ["threshold", "time"],
+  },
+  shutdown_failed: {
+    icon: "⚠️",
+    summary: "{device} did not shut down",
+    key: ["error", "battery"],
+    more: ["ups", "threshold", "time"],
+  },
+  wake_sent: { icon: "⏰", summary: "Sent wake packet to {device}", key: ["via"], more: ["ups", "battery", "time"] },
+  wake_failed: { icon: "⚠️", summary: "{device} was not woken", key: ["error"], more: ["ups", "battery", "time"] },
+  device_recovered: { icon: "🟢", summary: "{device} came back online", key: ["ups"], more: ["time"] },
+  agent_connected: { icon: "🔗", summary: "Agent connected", key: ["device", "version"], more: ["time"] },
+  agent_disconnected: {
+    icon: "🔌",
+    summary: "Agent is no longer connected",
+    key: ["device"],
+    more: ["version", "time"],
+  },
+  agent_enrolled: { icon: "🤝", summary: "Agent paired", key: ["device", "version"], more: ["time"] },
+  agent_update_available: {
+    icon: "⬆️",
+    summary: "Agent update available",
+    key: ["device", "version"],
+    more: ["time"],
+  },
+  agent_updated: { icon: "✨", summary: "Agent updated", key: ["device", "version"], more: ["time"] },
+  agent_update_failed: { icon: "⚠️", summary: "Agent update failed", key: ["device", "error"], more: ["time"] },
+  login: { icon: "🔐", summary: "{message}", key: [], more: ["time"] },
+  test: {
+    icon: "🔔",
+    summary: "{message}",
+    key: [],
+    more: ["ups", "device", "battery", "runtime", "status", "threshold", "time"],
+  },
 };
 
-function forEachEvent(build: (type: EventType) => Template): Record<EventType, Template> {
-  return Object.fromEntries(EVENT_TYPES.map((type) => [type, build(type)])) as Record<EventType, Template>;
+type LineStyle = "text" | "icon" | "icon-text";
+
+function detailLine(detail: Detail, style: LineStyle): string {
+  const { icon, text } = DETAILS[detail];
+  if (style === "text") return text;
+  return style === "icon" ? `${icon} {${detail}}` : `${icon} ${text}`;
 }
 
-function detailLines(type: EventType, icons: boolean): string {
-  return DETAILS[type].map((d) => `${DETAIL_LABELS[d][icons ? "icon" : "text"]} {${d}}`).join("\n");
+function body(lead: string, details: Detail[], style: LineStyle, gap = "\n"): string {
+  const lines = details.map((detail) => detailLine(detail, style)).join("\n");
+  if (!lead) return lines || "{message}";
+  return lines ? `${lead}${gap}${lines}` : lead;
 }
 
-const iconTitle = (type: EventType) => `${ICONS[type]} {title}`;
+function forEachEvent(build: (spec: EventSpec) => Template): Record<EventType, Template> {
+  return Object.fromEntries(EVENT_TYPES.map((type) => [type, build(EVENTS[type])])) as Record<EventType, Template>;
+}
+
+const iconTitle = (spec: EventSpec) => `${spec.icon} {title}`;
 
 /** Ready-made template sets. The first one is the built-in default. */
 export const TEMPLATE_PRESETS: TemplatePreset[] = [
   { id: "default", label: "Default", templates: forEachEvent(() => DEFAULT_TEMPLATE) },
-  { id: "minimal", label: "Minimalistic", templates: forEachEvent(() => ({ title: "{title}", body: "{time}" })) },
+  {
+    id: "minimal",
+    label: "Minimalistic",
+    templates: forEachEvent((spec) => ({ title: "{title}", body: body("", spec.key, "text") })),
+  },
   {
     id: "detailed",
     label: "Detailed",
-    templates: forEachEvent((type) => ({ title: "{title}", body: `{message}\n\n${detailLines(type, false)}` })),
+    templates: forEachEvent((spec) => ({
+      title: "{title}",
+      // The message already states the error.
+      body: body("{message}", [...spec.key, ...spec.more].filter((d) => d !== "error"), "text", "\n\n"),
+    })),
   },
   {
     id: "icon-default",
     label: "Icon Default",
-    templates: forEachEvent((type) => ({ title: iconTitle(type), body: "{message}" })),
+    templates: forEachEvent((spec) => ({ title: iconTitle(spec), body: body(spec.summary, spec.key, "icon-text") })),
   },
   {
     id: "icon-minimal",
     label: "Icon Minimalistic",
-    templates: forEachEvent((type) => ({ title: iconTitle(type), body: "🕒 {time}" })),
+    templates: forEachEvent((spec) => ({ title: iconTitle(spec), body: body("", spec.key, "icon") })),
   },
   {
     id: "icon-detailed",
     label: "Icon Detailed",
-    templates: forEachEvent((type) => ({ title: iconTitle(type), body: `{message}\n\n${detailLines(type, true)}` })),
+    templates: forEachEvent((spec) => ({
+      title: iconTitle(spec),
+      body: body(spec.summary, [...spec.key, ...spec.more], "icon-text"),
+    })),
   },
 ];
 
