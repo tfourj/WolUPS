@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { DEFAULT_TEMPLATE, EVENT_LABELS, EVENT_TYPES, TEMPLATE_VARIABLES } from "@shared/events";
 import { Field } from "@/components/common";
+import { WAKE_DELIVERY_KEY, WakeDeliveryStatus } from "@/components/WakeDeliveryStatus";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -148,6 +157,7 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
 }
 
 function WakeTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Partial<AppSettings>) => Promise<unknown> }) {
+  const queryClient = useQueryClient();
   const [s, setS] = useState(data.settings);
   useEffect(() => setS(data.settings), [data.settings]);
   const wake = s.wake;
@@ -194,7 +204,16 @@ function WakeTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Partial
       <Card>
         <CardHeader>
           <CardTitle>Wake-on-LAN delivery</CardTitle>
-          <CardDescription>Server broadcasts only reach your LAN when the container uses host networking.</CardDescription>
+          <CardAction>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => queryClient.invalidateQueries({ queryKey: WAKE_DELIVERY_KEY })}
+            >
+              <RefreshCw />
+              Test
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="grid gap-4">
           <Field label="Send wake packets from">
@@ -212,9 +231,19 @@ function WakeTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Partial
           <Field label="Server broadcast address" htmlFor="wol-bcast">
             <Input id="wol-bcast" value={s.wolBroadcast} onChange={(e) => setS({ ...s, wolBroadcast: e.target.value })} />
           </Field>
+          <div className="border-t pt-4">
+            <WakeDeliveryStatus />
+          </div>
         </CardContent>
         <CardFooter>
-          <Button onClick={() => onSave({ wolMode: s.wolMode, wolBroadcast: s.wolBroadcast })}>Save</Button>
+          <Button
+            onClick={async () => {
+              await onSave({ wolMode: s.wolMode, wolBroadcast: s.wolBroadcast });
+              queryClient.invalidateQueries({ queryKey: WAKE_DELIVERY_KEY });
+            }}
+          >
+            Save
+          </Button>
         </CardFooter>
       </Card>
     </div>
