@@ -4,8 +4,10 @@ import { createOTP } from "@better-auth/utils/otp";
 import { eq } from "drizzle-orm";
 import { auth } from "../src/server/auth/auth";
 import { loginEvent, signInMethod } from "../src/server/auth/login-events";
+import { listSessions, touchSession } from "../src/server/auth/sessions";
 import { db } from "../src/server/db/client";
-import { channels, events, user } from "../src/server/db/schema";
+import { channels, events, session, user } from "../src/server/db/schema";
+import { apiRoutes } from "../src/server/routes/api";
 import { loginChannelIds, setLoginChannels } from "../src/server/routes/security";
 import { describeUserAgent } from "../src/server/user-agent";
 import { box } from "../src/server/secrets";
@@ -87,6 +89,74 @@ describe("login channels", () => {
     expect(rows.find((c) => c.id === b)?.events).toEqual(["ups_on_battery"]);
     setLoginChannels([]);
     expect(loginChannelIds()).toEqual([]);
+  });
+});
+
+describe("devices", () => {
+  const FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0";
+  const call = (path: string, cookie: string, body?: unknown) =>
+    apiRoutes.request(path, {
+      method: body ? "POST" : "GET",
+      headers: { cookie, "x-real-ip": "198.51.100.9", "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  type Device = { id: string; name: string; ip: string | null; current: boolean };
+
+  beforeEach(() => {
+    db.delete(session).run();
+  });
+
+  test("lists signed-in devices with this one first and its latest IP", async () => {
+    const mine = cookiesOf(await signIn());
+    await auth.api.signInEmail({
+      body: { email: EMAIL, password: PASSWORD },
+      headers: new Headers({ "user-agent": FIREFOX, "x-wolups-client-ip": "203.0.113.8" }),
+    });
+    const devices = (await (await call("/security/sessions", mine)).json()) as Device[];
+    expect(devices.map((d) => [d.name, d.ip, d.current])).toEqual([
+      ["Chrome on macOS", "198.51.100.9", true],
+      ["Firefox on Linux", "203.0.113.8", false],
+    ]);
+  });
+
+  test("leaves out expired sessions", async () => {
+    const mine = cookiesOf(await signIn());
+    await signIn();
+    const [current] = (await (await call("/security/sessions", mine)).json()) as Device[];
+    const rows = db.select().from(session).all();
+    const other = rows.find((r) => r.id !== current!.id)!;
+    db.update(session).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(session.id, other.id)).run();
+    expect(listSessions(other.userId, current!.id).map((d) => d.id)).toEqual([current!.id]);
+  });
+
+  test("writes activity at most once a minute unless the IP changes", async () => {
+    await signIn();
+    const row = db.select().from(session).get()!;
+    const now = new Date();
+    expect(touchSession(row, "198.51.100.9", now)).toBe(true);
+    const touched = db.select().from(session).get()!;
+    expect(touched.lastIp).toBe("198.51.100.9");
+    expect(touchSession(touched, "198.51.100.9", new Date(now.getTime() + 30_000))).toBe(false);
+    expect(touchSession(touched, "198.51.100.10", new Date(now.getTime() + 30_000))).toBe(true);
+    expect(touchSession(touched, "198.51.100.9", new Date(now.getTime() + 61_000))).toBe(true);
+  });
+
+  test("signs out the picked devices but never the requesting one", async () => {
+    const mine = cookiesOf(await signIn());
+    const other = cookiesOf(await signIn());
+    const ids = db.select().from(session).all().map((r) => r.id);
+    const left = (await (await call("/security/sessions/revoke", mine, { ids })).json()) as Device[];
+    expect(left).toHaveLength(1);
+    expect(left[0]?.current).toBe(true);
+    expect((await call("/security/sessions", other)).status).toBe(401);
+    expect((await call("/security/sessions", mine)).status).toBe(200);
+  });
+
+  test("signs out every device", async () => {
+    const mine = cookiesOf(await signIn());
+    await signIn();
+    expect(await (await call("/security/sessions/revoke-all", mine, {})).json()).toEqual({ revoked: 2 });
+    expect((await call("/security/sessions", mine)).status).toBe(401);
   });
 });
 
