@@ -1,12 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import { templateVars } from "../src/server/notify/templates";
-import { EVENT_TYPES, TEMPLATE_VARIABLES } from "../src/shared/events";
+import { EVENT_TYPES, TEMPLATE_VARIABLES, type EventType } from "../src/shared/events";
 import { matchTemplatePreset, TEMPLATE_PRESETS } from "../src/shared/template-presets";
-import { previewTemplate, renderTemplate, resolveTemplate, sampleTemplateVars } from "../src/shared/templates";
+import {
+  previewTemplate,
+  renderMessage,
+  renderTemplate,
+  resolveTemplate,
+  sampleTemplateVars,
+} from "../src/shared/templates";
 
 describe("templates", () => {
   test("replaces known variables and keeps unknown ones", () => {
     expect(renderTemplate("{ups} at {battery} ({nope})", { ups: "Rack", battery: "40%" })).toBe("Rack at 40% ({nope})");
+  });
+
+  test("leaves out lines whose values are all empty", () => {
+    const vars = { message: "M", battery: "", runtime: "", ups: "Rack" };
+    expect(renderTemplate("{message}\n\nBattery {battery}\nRuntime {runtime}", vars)).toBe("M");
+    expect(renderTemplate("{ups} at {battery}\nno values\n{nope}", vars)).toBe("Rack at \nno values\n{nope}");
+  });
+
+  test("an empty title or body falls back to the event's own", () => {
+    const vars = { title: "T", message: "M", battery: "" };
+    expect(renderMessage({ title: "", body: "Battery {battery}" }, vars)).toEqual({ title: "T", body: "M" });
+    expect(renderMessage({ title: "x", body: "y" }, vars)).toEqual({ title: "x", body: "y" });
+  });
+
+  test("joins the senders of a wake packet and passes on errors and durations", () => {
+    const event = { type: "wake_sent", title: "T", message: "M", createdAt: new Date("2026-01-01T00:00:00Z") };
+    const vars = templateVars({ ...event, data: { via: ["server", "agent"], error: "boom", duration: "5m 0s" } });
+    expect(vars).toMatchObject({ via: "server, agent", error: "boom", duration: "5m 0s" });
+    expect(templateVars(event)).toMatchObject({ via: "", error: "", duration: "" });
   });
 
   test("builds variables from event data", () => {
@@ -72,10 +97,32 @@ describe("template presets", () => {
     expect(matchTemplatePreset({ login: { title: "Sign-in", body: "{message}" } })).toBeUndefined();
   });
 
-  test("icon presets prefix the title and detailed presets list event values", () => {
-    const now = new Date("2026-01-01T12:00:00Z");
-    const preset = (id: string) => TEMPLATE_PRESETS.find((p) => p.id === id)!.templates.ups_on_battery;
-    expect(previewTemplate("ups_on_battery", preset("icon-default"), now).title).toBe("🔋 Rack UPS is on battery");
-    expect(previewTemplate("ups_on_battery", preset("detailed"), now).body).toContain("Battery: 98%\nRuntime: 42m 0s");
+  const now = new Date("2026-01-01T12:00:00Z");
+  const preview = (id: string, type: EventType) =>
+    previewTemplate(type, TEMPLATE_PRESETS.find((p) => p.id === id)!.templates[type], now);
+
+  test("icon presets write the message themselves with icons", () => {
+    expect(preview("icon-default", "ups_on_battery")).toEqual({
+      title: "🔋 Rack UPS is on battery",
+      body: "Rack UPS switched to battery power\n🔋 Battery 98%\n⏱️ Runtime 42m 0s",
+    });
+    expect(preview("icon-minimal", "ups_power_restored").body).toBe("⏳ 12m 30s\n🔋 64%");
+    expect(preview("minimal", "wake_failed").body).toBe("no agent on the subnet");
+  });
+
+  test("presets leave out values an event does not carry", () => {
+    const unreachable = preview("icon-detailed", "ups_unreachable").body;
+    expect(unreachable).toMatch(/^Cannot read Rack UPS from NUT\n❗ connection refused\n🕒 /);
+    expect(preview("minimal", "login").body).toBe(sampleTemplateVars("login", now).message);
+  });
+
+  test("every preset renders a title and body for each example event", () => {
+    for (const preset of TEMPLATE_PRESETS) {
+      for (const type of EVENT_TYPES) {
+        const { title, body } = preview(preset.id, type);
+        expect(title).not.toBe("");
+        expect(body).not.toMatch(/^$|\n$|\{/);
+      }
+    }
   });
 });
