@@ -135,7 +135,9 @@ agentHub.onAck((command, ack) => {
       .run();
   }
   if (ack.ok) {
-    db.update(devices).set({ online: false }).where(eq(devices.id, device.id)).run();
+    // The machine stays up while it stops services (Proxmox stops every guest first), so it is
+    // "shutting down" until presence sees it go away, not offline right now.
+    db.update(devices).set({ shuttingDownSince: new Date() }).where(eq(devices.id, device.id)).run();
     emitEvent({
       type: "shutdown_acknowledged",
       deviceId: device.id,
