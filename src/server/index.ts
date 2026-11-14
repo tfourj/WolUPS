@@ -9,6 +9,9 @@ import { upsMonitor } from "./monitor/ups-monitor";
 import { agentHub } from "./agents/hub";
 import { startReleaseChecks } from "./agents/releases";
 import { agentPublicRoutes } from "./routes/agent-public";
+import { processShutdowns } from "./monitor/shutdown";
+import { scheduleWakes } from "./monitor/wake";
+import { startPresence } from "./monitor/presence";
 
 const log = createLogger("server");
 
@@ -30,5 +33,8 @@ const server = Bun.serve({
 });
 log.info("listening", { port: server.port, baseUrl: env.baseUrl });
 
+upsMonitor.onBattery(processShutdowns);
+upsMonitor.onTick(scheduleWakes);
 upsMonitor.start();
+startPresence();
 startReleaseChecks();
