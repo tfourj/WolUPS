@@ -4,6 +4,7 @@ import { channelRoutes } from "./channels";
 import { deviceRoutes } from "./devices";
 import { eventRoutes } from "./events";
 import { overviewRoutes } from "./overview";
+import { securityRoutes } from "./security";
 import { settingsRoutes } from "./settings";
 import { upsRoutes } from "./ups";
 
@@ -17,3 +18,4 @@ apiRoutes.route("/devices", deviceRoutes);
 apiRoutes.route("/events", eventRoutes);
 apiRoutes.route("/channels", channelRoutes);
 apiRoutes.route("/settings", settingsRoutes);
+apiRoutes.route("/security", securityRoutes);
