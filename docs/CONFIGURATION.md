@@ -69,6 +69,8 @@ Templates are set in **Settings → Templates** and can be overridden per channe
 
 `{event}` `{title}` `{message}` `{ups}` `{device}` `{battery}` `{runtime}` `{status}` `{threshold}` `{version}` `{time}`
 
+**Preview** shows a template filled in with an example event.
+
 Failed deliveries are retried up to 6 times. Each attempt is shown in **Events**, where you can also retry by hand.
 
 ## Reverse proxy, Coolify and Cloudflare

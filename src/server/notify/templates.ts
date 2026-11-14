@@ -1,12 +1,6 @@
 import { formatRuntime } from "../format";
-import { DEFAULT_TEMPLATE, type EventType } from "../../shared/events";
-
-export type TemplateVars = Record<string, string>;
-
-/** Replace {name} placeholders. Unknown placeholders are left untouched. */
-export function renderTemplate(template: string, vars: TemplateVars): string {
-  return template.replace(/\{([a-z_]+)\}/gi, (match, name: string) => (name in vars ? vars[name] : match));
-}
+import type { EventType } from "../../shared/events";
+import type { TemplateVars } from "../../shared/templates";
 
 export function formatTime(date: Date): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -39,20 +33,5 @@ export function templateVars(event: TemplateEvent): TemplateVars {
     threshold: d.threshold === null || d.threshold === undefined ? "" : `${d.threshold}%`,
     version: str(d.version),
     time: formatTime(event.createdAt),
-  };
-}
-
-export type Template = { title: string; body: string };
-
-/** Channel override first, then the global template for the event type, then the default. */
-export function resolveTemplate(
-  eventType: string,
-  global: Record<string, Template>,
-  channel: { titleTemplate?: string | null; bodyTemplate?: string | null },
-): Template {
-  const base = global[eventType] ?? DEFAULT_TEMPLATE;
-  return {
-    title: channel.titleTemplate?.trim() ? channel.titleTemplate : base.title,
-    body: channel.bodyTemplate?.trim() ? channel.bodyTemplate : base.body,
   };
 }

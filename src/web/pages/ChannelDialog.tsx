@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Send } from "lucide-react";
+import { Eye, EyeOff, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { CHANNEL_TYPES, CHANNEL_TYPE_IDS, type ChannelField, type ChannelType } from "@shared/channels";
 import { DEFAULT_CHANNEL_EVENTS, EVENT_LABELS, EVENT_TYPES, TEMPLATE_VARIABLES, type EventType } from "@shared/events";
+import { resolveTemplate } from "@shared/templates";
 import { Field } from "@/components/common";
 import { MultiCheck } from "@/components/MultiCheck";
+import { TemplatePreview } from "@/components/TemplatePreview";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -14,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { useAction } from "@/lib/mutations";
-import type { Channel, Device, Ups } from "@/lib/types";
+import type { AppSettings, Channel, Device, Ups } from "@/lib/types";
 
 type Form = {
   name: string;
@@ -121,6 +123,8 @@ export function ChannelDialog({
 }) {
   const [form, setForm] = useState<Form>(toForm());
   const [testing, setTesting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewEvent, setPreviewEvent] = useState<EventType | null>(null);
   const { data: upsList = [] } = useQuery({ queryKey: ["ups"], queryFn: () => api.get<Ups[]>("/ups"), enabled: open });
   const { data: deviceList = [] } = useQuery({
     queryKey: ["devices"],
@@ -128,9 +132,20 @@ export function ChannelDialog({
     enabled: open,
   });
 
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => api.get<{ settings: AppSettings }>("/settings"),
+    enabled: open && previewing,
+  });
+
   useEffect(() => {
     if (open) setForm(toForm(channel));
   }, [open, channel]);
+
+  // Preview with the channel's own events; fall back to all of them when none are picked.
+  const previewEvents = form.events.length ? form.events : EVENT_TYPES.filter((t) => t !== "test");
+  const previewType = previewEvent && previewEvents.includes(previewEvent) ? previewEvent : previewEvents[0];
+  const previewTemplate = resolveTemplate(previewType, settings?.settings.templates ?? {}, form);
 
   const fields = CHANNEL_TYPES[form.type].fields as ChannelField[];
   const secretsSet = channel && channel.type === form.type ? channel.secretsSet : {};
@@ -269,9 +284,38 @@ export function ChannelDialog({
                   rows={4}
                 />
               </Field>
-              <p className="text-muted-foreground text-xs">
-                Variables: {TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(" ")}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-muted-foreground text-xs">
+                  Variables: {TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(" ")}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreviewing(!previewing)}
+                  aria-pressed={previewing}
+                >
+                  {previewing ? <EyeOff /> : <Eye />}
+                  Preview
+                </Button>
+              </div>
+              {previewing && (
+                <div className="grid gap-2">
+                  <Select value={previewType} onValueChange={(v) => setPreviewEvent(v as EventType)}>
+                    <SelectTrigger className="w-full" aria-label="Preview event">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {previewEvents.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {EVENT_LABELS[t]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <TemplatePreview eventType={previewType} template={previewTemplate} />
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </form>
