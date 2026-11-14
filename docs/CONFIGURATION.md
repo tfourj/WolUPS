@@ -4,7 +4,8 @@
 
 1. Open `BASE_URL` and create your account. It is the only account; registration closes afterwards.
 2. In **UPS**, add your NUT server. **Find** lists the UPS names it serves, **Test connection** checks the login.
-3. In **Devices**, add each machine, pick the UPS that powers it and set a shutdown threshold.
+3. In **Devices**, add each machine, pick the UPS that powers it and set a shutdown threshold. The button next to
+   the MAC field looks the MAC up from the host's IP.
 4. Choose **Install agent** on a device and run the command on that machine (see [Agents](#agents)).
 5. In **Channels**, add a channel and press **Test**.
 
@@ -49,7 +50,8 @@ If you unpair an offline agent, run `wolups-agent reset --confirm` on the device
 ## Wake-on-LAN
 
 Wake packets only reach your LAN from the container with `network_mode: host`. Without it, an online agent on the
-same network sends them. Choose server, agent or both in **Settings → Wake**.
+same network sends them. Choose server, agent or both in **Settings → Wake**. MAC lookup uses the same
+route: the server's ARP table on host networking, otherwise an agent on the same subnet.
 
 ## Notifications
 
