@@ -17,6 +17,7 @@ export const EVENT_TYPES = [
   "agent_update_available",
   "agent_updated",
   "agent_update_failed",
+  "login",
   "test",
 ] as const;
 
@@ -40,6 +41,7 @@ export const EVENT_LABELS: Record<EventType, string> = {
   agent_update_available: "Agent update available",
   agent_updated: "Agent updated",
   agent_update_failed: "Agent update failed",
+  login: "New sign-in",
   test: "Test notification",
 };
 
@@ -63,10 +65,11 @@ export const DEFAULT_EVENT_SEVERITY: Record<EventType, Severity> = {
   agent_update_available: "info",
   agent_updated: "success",
   agent_update_failed: "error",
+  login: "info",
   test: "info",
 };
 
-/** Events a new channel subscribes to by default. Noisy connection events are opt-in. */
+/** Events a new channel subscribes to by default. Noisy connection events and sign-ins are opt-in. */
 export const DEFAULT_CHANNEL_EVENTS: EventType[] = [
   "ups_on_battery",
   "ups_power_restored",

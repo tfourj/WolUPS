@@ -20,9 +20,9 @@ WolUPS/
 │   │   ├── settings.ts              App settings stored in the database
 │   │   ├── secrets.ts               Encryption box and server signing key
 │   │   ├── events.ts                Event log and listeners
-│   │   ├── cli.ts                   Recovery commands (reset-password)
+│   │   ├── cli.ts                   Recovery commands (reset-password, disable-2fa)
 │   │   ├── db/                      Drizzle schema and SQLite client
-│   │   ├── auth/                    Better Auth setup and session middleware
+│   │   ├── auth/                    Better Auth and two-factor setup, login event hook, sessions
 │   │   ├── crypto/                  AES-GCM secret storage, Ed25519 signing
 │   │   ├── nut/                     NUT protocol client and parser
 │   │   ├── monitor/                 UPS polling, outages, shutdown and wake rules, presence

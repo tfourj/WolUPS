@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Loader2 } from "lucide-react";
@@ -28,8 +29,11 @@ export function App() {
     staleTime: Infinity,
   });
   const session = authClient.useSession();
+  // Sign-in refetches the session. Only wait for the first load, so the login page keeps its two-factor step.
+  const sessionLoaded = useRef(false);
+  if (!session.isPending) sessionLoaded.current = true;
 
-  if (setup.isPending || session.isPending) return <FullScreenSpinner />;
+  if (setup.isPending || !sessionLoaded.current) return <FullScreenSpinner />;
 
   const needsSetup = setup.data?.needsSetup ?? false;
   const signedIn = !!session.data;

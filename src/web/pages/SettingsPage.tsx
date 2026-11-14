@@ -25,6 +25,7 @@ import { authClient } from "@/lib/auth-client";
 import { formatDateTime } from "@/lib/format";
 import { useAction } from "@/lib/mutations";
 import type { AppSettings, SystemInfo } from "@/lib/types";
+import { SecurityTab } from "./SecurityTab";
 
 type SettingsResponse = { settings: AppSettings; system: SystemInfo };
 
@@ -415,6 +416,7 @@ export function SettingsPage() {
         <TabsTrigger value="wake">Wake</TabsTrigger>
         <TabsTrigger value="templates">Templates</TabsTrigger>
         <TabsTrigger value="account">Account</TabsTrigger>
+        <TabsTrigger value="security">Security</TabsTrigger>
       </TabsList>
       {data && (
         <>
@@ -431,6 +433,9 @@ export function SettingsPage() {
       )}
       <TabsContent value="account">
         <AccountTab />
+      </TabsContent>
+      <TabsContent value="security">
+        <SecurityTab />
       </TabsContent>
     </Tabs>
   );

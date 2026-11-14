@@ -14,6 +14,7 @@ export const user = sqliteTable("user", {
   email: text().notNull().unique(),
   emailVerified: bool().notNull().default(false),
   image: text(),
+  twoFactorEnabled: bool().notNull().default(false),
   createdAt: ts().notNull().default(now),
   updatedAt: ts().notNull().default(now),
 });
@@ -57,6 +58,23 @@ export const verification = sqliteTable("verification", {
   createdAt: ts().notNull().default(now),
   updatedAt: ts().notNull().default(now),
 });
+
+// Better Auth two-factor plugin. The secret and backup codes are encrypted with BETTER_AUTH_SECRET.
+export const twoFactor = sqliteTable(
+  "two_factor",
+  {
+    id: text().primaryKey(),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    secret: text().notNull(),
+    backupCodes: text().notNull(),
+    verified: bool().notNull().default(true),
+    failedVerificationCount: integer().notNull().default(0),
+    lockedUntil: ts(),
+  },
+  (t) => [index("two_factor_user_idx").on(t.userId)],
+);
 
 // App tables
 

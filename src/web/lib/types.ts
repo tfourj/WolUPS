@@ -167,3 +167,7 @@ export type SystemInfo = {
   latestAgent: { version: string; url: string; checkedAt: number } | null;
   latestAgentError: string | null;
 };
+
+export type SecurityStatus = { twoFactorEnabled: boolean; loginChannelIds: string[] };
+
+export type LoginTestResult = { results: { id: string; name: string; ok: boolean; error: string | null }[] };
