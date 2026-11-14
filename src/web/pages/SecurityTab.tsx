@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Copy, Download, Send } from "lucide-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { encode } from "uqr";
+import { CHANNEL_TYPES } from "@shared/channels";
 import { Field, ToneBadge } from "@/components/common";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
-import type { SecurityStatus } from "@/lib/types";
+import type { Channel, LoginTestResult, SecurityStatus } from "@/lib/types";
 
 export const SECURITY_KEY = ["security"];
 
@@ -361,6 +364,95 @@ function TwoFactorCard({ status }: { status: SecurityStatus }) {
   );
 }
 
+function sameIds(a: string[], b: string[]) {
+  return a.length === b.length && a.every((id) => b.includes(id));
+}
+
+/** Picks the channels subscribed to "login" events. Same setting as the event list in each channel. */
+function LoginNotificationsCard({ status }: { status: SecurityStatus }) {
+  const queryClient = useQueryClient();
+  const { data: channels = [], isPending } = useQuery({
+    queryKey: ["channels"],
+    queryFn: () => api.get<Channel[]>("/channels"),
+  });
+  const saved = status.loginChannelIds;
+  const [selected, setSelected] = useState<string[]>(saved);
+  // Reset only when the saved ids change, not on every refetch.
+  useEffect(() => setSelected(saved), [saved.join(",")]);
+
+  const save = useMutation({
+    mutationFn: () => api.patch<SecurityStatus>("/security/login-channels", { channelIds: selected }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(SECURITY_KEY, next);
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+      toast.success(next.loginChannelIds.length ? "Login notifications saved" : "Login notifications turned off");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const test = useMutation({
+    mutationFn: () => api.post<LoginTestResult>("/security/login-channels/test", { channelIds: selected }),
+    onSuccess: ({ results }) => {
+      for (const r of results) {
+        if (r.ok) toast.success(`Test sent to ${r.name}`);
+        else toast.error(`${r.name}: ${r.error}`);
+      }
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const toggle = (id: string, on: boolean) =>
+    setSelected((ids) => (on ? [...new Set([...ids, id])] : ids.filter((x) => x !== id)));
+  const dirty = !sameIds(selected, saved);
+  const canTest = channels.some((c) => c.enabled && selected.includes(c.id));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Login notifications
+          <ToneBadge tone={saved.length ? "success" : "muted"}>{saved.length ? "On" : "Off"}</ToneBadge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isPending ? null : channels.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No channels yet.{" "}
+            <Link to="/channels" className="text-foreground font-medium underline-offset-4 hover:underline">
+              Add a channel
+            </Link>{" "}
+            to get notified of new sign-ins.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {channels.map((channel) => (
+              <label key={channel.id} className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
+                <Checkbox
+                  checked={selected.includes(channel.id)}
+                  onCheckedChange={(v) => toggle(channel.id, v === true)}
+                />
+                <span className="min-w-0 flex-1 truncate font-medium">{channel.name}</span>
+                {!channel.enabled && <ToneBadge tone="muted">Disabled</ToneBadge>}
+                <span className="text-muted-foreground text-xs">{CHANNEL_TYPES[channel.type]?.label ?? channel.type}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </CardContent>
+      {channels.length > 0 && (
+        <CardFooter className="flex justify-end gap-2">
+          <Button variant="outline" disabled={!canTest || test.isPending} onClick={() => test.mutate()}>
+            <Send />
+            Send test
+          </Button>
+          <Button disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+            Save
+          </Button>
+        </CardFooter>
+      )}
+    </Card>
+  );
+}
+
 export function SecurityTab() {
   const { data } = useQuery({ queryKey: SECURITY_KEY, queryFn: () => api.get<SecurityStatus>("/security") });
   if (!data) return null;
@@ -368,6 +460,7 @@ export function SecurityTab() {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <TwoFactorCard status={data} />
+      <LoginNotificationsCard status={data} />
     </div>
   );
 }

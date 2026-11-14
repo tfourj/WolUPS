@@ -169,3 +169,5 @@ export type SystemInfo = {
 };
 
 export type SecurityStatus = { twoFactorEnabled: boolean; loginChannelIds: string[] };
+
+export type LoginTestResult = { results: { id: string; name: string; ok: boolean; error: string | null }[] };
