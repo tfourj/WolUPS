@@ -16,6 +16,7 @@ WolUPS/
 │   ├── server/
 │   │   ├── index.ts                 Entry point: Hono app, WebSocket, background jobs
 │   │   ├── env.ts, logger.ts        Env vars, generated secrets, JSON logging
+│   │   ├── build-info.ts            Running version and commit
 │   │   ├── settings.ts              App settings stored in the database
 │   │   ├── secrets.ts               Encryption box and server signing key
 │   │   ├── events.ts                Event log and listeners
