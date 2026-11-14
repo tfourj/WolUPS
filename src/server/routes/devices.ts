@@ -11,6 +11,7 @@ import { emitEvent } from "../events";
 import { shutdownNow } from "../monitor/shutdown";
 import { wakeNow } from "../monitor/wake";
 import { normalizeMac } from "../wol/magic";
+import { resolveMac } from "../wol/resolve-mac";
 import { compareNames } from "../../shared/sort";
 import { isNewerVersion } from "../../shared/version";
 import { parseBody, patchSchema } from "./util";
@@ -86,6 +87,18 @@ deviceRoutes.get("/", (c) => {
     .all()
     .sort((a, b) => compareNames(a.device.name, b.device.name));
   return c.json(rows.map((r) => serialize(r.device, r.agent, r.upsName)));
+});
+
+deviceRoutes.post("/resolve-mac", async (c) => {
+  const body = await parseBody(
+    c,
+    z.object({
+      host: z.string().trim().min(1).max(255).regex(/^[A-Za-z0-9.:_-]+$/, "invalid host"),
+      deviceId: z.string().optional(),
+    }),
+  );
+  if (body instanceof Response) return body;
+  return c.json(await resolveMac(body.host, body.deviceId));
 });
 
 deviceRoutes.post("/", async (c) => {

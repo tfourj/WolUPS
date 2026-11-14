@@ -3,6 +3,7 @@ import { z } from "zod";
 import { patchSchema } from "../src/server/routes/util";
 import { cidrContains, parseCidr } from "../src/server/wol/cidr";
 import { magicPacket, normalizeMac, parseMac } from "../src/server/wol/magic";
+import { parseArpCommand, parseArpTable } from "../src/server/wol/resolve-mac";
 import { compareNames } from "../src/shared/sort";
 import { isNewerVersion } from "../src/shared/version";
 
@@ -46,5 +47,23 @@ describe("name sorting", () => {
   test("is natural and case-insensitive", () => {
     const names = ["pve-10", "Zeta", "pve-2", "alpha", "PVE-1"];
     expect(names.sort(compareNames)).toEqual(["alpha", "PVE-1", "pve-2", "pve-10", "Zeta"]);
+  });
+});
+
+describe("arp parsing", () => {
+  test("reads complete entries from /proc/net/arp", () => {
+    const table = [
+      "IP address       HW type     Flags       HW address            Mask     Device",
+      "192.168.1.20     0x1         0x2         BC:24:11:4A:9E:01     *        eth0",
+      "192.168.1.21     0x1         0x0         00:00:00:00:00:00     *        eth0",
+    ].join("\n");
+    expect(parseArpTable(table, "192.168.1.20")).toBe("bc:24:11:4a:9e:01");
+    expect(parseArpTable(table, "192.168.1.21")).toBeNull();
+    expect(parseArpTable(table, "192.168.1.22")).toBeNull();
+  });
+
+  test("reads macOS arp output with short octets", () => {
+    expect(parseArpCommand("? (192.168.1.1) at 0:11:32:a:b:c on en0 ifscope [ethernet]")).toBe("00:11:32:0a:0b:0c");
+    expect(parseArpCommand("192.168.1.9 (192.168.1.9) -- no entry")).toBeNull();
   });
 });
