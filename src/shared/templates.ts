@@ -5,9 +5,31 @@ export type TemplateVars = Record<string, string>;
 
 export type Template = { title: string; body: string };
 
-/** Replace {name} placeholders. Unknown placeholders are left untouched. */
+const PLACEHOLDER = /\{([a-z_]+)\}/gi;
+
+/** A line is dropped when it has placeholders and every one of them is empty for this event. */
+function hasOnlyEmptyValues(line: string, vars: TemplateVars): boolean {
+  const names = [...line.matchAll(PLACEHOLDER)].map((match) => match[1]);
+  return names.length > 0 && names.every((name) => vars[name] === "");
+}
+
+/**
+ * Replace {name} placeholders. Unknown placeholders are left untouched, and lines whose values are
+ * all empty are left out.
+ */
 export function renderTemplate(template: string, vars: TemplateVars): string {
-  return template.replace(/\{([a-z_]+)\}/gi, (match, name: string) => (name in vars ? vars[name] : match));
+  const lines = template.split("\n");
+  const kept = lines.filter((line) => !hasOnlyEmptyValues(line, vars));
+  const text = kept.join("\n").replace(PLACEHOLDER, (match, name: string) => (name in vars ? vars[name] : match));
+  return kept.length < lines.length ? text.trim() : text;
+}
+
+/** Render a notification. A title or body that comes out empty falls back to the event's own. */
+export function renderMessage(template: Template, vars: TemplateVars): Template {
+  return {
+    title: renderTemplate(template.title, vars) || vars.title || "",
+    body: renderTemplate(template.body, vars) || vars.message || "",
+  };
 }
 
 /** Channel override first, then the global template for the event type, then the default. */
@@ -162,6 +184,5 @@ export function previewTemplate(
   now = new Date(),
   time: TimeOptions = {},
 ): Template {
-  const vars = sampleTemplateVars(eventType, now, time);
-  return { title: renderTemplate(template.title, vars), body: renderTemplate(template.body, vars) };
+  return renderMessage(template, sampleTemplateVars(eventType, now, time));
 }
