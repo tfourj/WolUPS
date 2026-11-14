@@ -84,6 +84,11 @@ function AgentCell({ device }: { device: Device }) {
   );
 }
 
+function DeviceStatus({ device }: { device: Device }) {
+  if (device.shuttingDownSince && device.online) return <ToneBadge tone="warning">Shutting down</ToneBadge>;
+  return <ToneBadge tone={device.online ? "success" : "muted"}>{device.online ? "Online" : "Offline"}</ToneBadge>;
+}
+
 export function DevicesPage() {
   const { data = [], isPending } = useQuery({
     queryKey: ["devices"],
@@ -187,10 +192,14 @@ export function DevicesPage() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span>
-                          <ToneBadge tone={d.online ? "success" : "muted"}>{d.online ? "Online" : "Offline"}</ToneBadge>
+                          <DeviceStatus device={d} />
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>Last seen {formatDateTime(d.lastSeenAt)}</TooltipContent>
+                      <TooltipContent>
+                        {d.shuttingDownSince && d.online
+                          ? `Shutdown accepted ${formatDateTime(d.shuttingDownSince)}`
+                          : `Last seen ${formatDateTime(d.lastSeenAt)}`}
+                      </TooltipContent>
                     </Tooltip>
                   </TableCell>
                   <TableCell>
