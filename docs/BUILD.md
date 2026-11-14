@@ -38,6 +38,8 @@ git push origin main v1.2.3
 This publishes `ghcr.io/tfourj/wolups` for `linux/amd64` and `linux/arm64`, and a GitHub release with the agent
 binaries, install scripts and checksums that agents update from.
 
+The version label in the sidebar shows the version for images of a release tag and the short commit for other builds.
+
 ## Screenshots
 
 The README screenshots use made-up demo data. Only Docker is needed:

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { latestAgentRelease, checkForAgentUpdates } from "../agents/releases";
+import { COMMIT, VERSION } from "../build-info";
 import { env } from "../env";
 import { checkWakeDelivery } from "../wol/check";
 import { appSettingsSchema, getSettings, updateSettings } from "../settings";
@@ -10,7 +11,8 @@ export const settingsRoutes = new Hono();
 function system() {
   const release = latestAgentRelease();
   return {
-    version: env.version,
+    version: VERSION,
+    commit: COMMIT,
     baseUrl: env.baseUrl,
     agentRepo: env.agentRepo,
     timezone: process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone,

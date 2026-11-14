@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import { secureHeaders } from "hono/secure-headers";
 import { runMigrations } from "./db/client";
+import { COMMIT, VERSION } from "./build-info";
 import { env } from "./env";
 import { createLogger } from "./logger";
 import { auth, hasAccount } from "./auth/auth";
@@ -27,7 +28,7 @@ const app = new Hono();
 
 app.use("*", secureHeaders({ crossOriginEmbedderPolicy: false }));
 
-app.get("/api/health", (c) => c.json({ status: "ok", version: env.version }));
+app.get("/api/health", (c) => c.json({ status: "ok", version: VERSION, commit: COMMIT }));
 app.get("/api/setup", (c) => c.json({ needsSetup: !hasAccount() }));
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(withClientIp(c)));
 app.route("/api/agents", agentPublicRoutes);

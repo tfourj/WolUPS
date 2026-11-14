@@ -159,6 +159,8 @@ export type AppSettings = {
 
 export type SystemInfo = {
   version: string;
+  /** Short commit for builds that are not a stable release. */
+  commit: string | null;
   baseUrl: string;
   agentRepo: string;
   timezone: string;

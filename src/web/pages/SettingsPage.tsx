@@ -127,7 +127,7 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
           <dl className="grid gap-3 text-sm">
             {[
               ["Base URL", sys.baseUrl],
-              ["Version", sys.version],
+              ["Version", sys.commit ? `v${sys.version} (${sys.commit})` : `v${sys.version}`],
               ["Time zone", sys.timezone],
               ["Agent releases", sys.agentRepo],
               [
