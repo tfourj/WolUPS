@@ -174,6 +174,7 @@ export const agents = sqliteTable("agents", {
   connected: bool().notNull().default(false),
   lastSeenAt: ts(),
   enrolledAt: ts().notNull().default(now),
+  // Enrollment turns this on for new agents. The column default stays false to avoid rebuilding the table.
   autoUpdate: bool().notNull().default(false),
   updateStatus: text(),
   latestVersion: text(),

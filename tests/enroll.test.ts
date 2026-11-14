@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { db } from "../src/server/db/client";
 import { agents, devices } from "../src/server/db/schema";
 import { createEnrollmentToken, EnrollmentError, redeemEnrollment } from "../src/server/agents/enroll";
@@ -49,5 +50,17 @@ describe("agent enrollment", () => {
   test("rejects malformed public keys", () => {
     const { token } = createEnrollmentToken(deviceId);
     expect(() => redeemEnrollment(token, "not-a-key", info)).toThrow();
+  });
+});
+
+describe("automatic updates", () => {
+  test("are on for new agents and kept when a device is paired again", () => {
+    const first = redeemEnrollment(createEnrollmentToken(deviceId).token, generateSigningKey().publicKeyRaw, info);
+    const row = () => db.select().from(agents).all().find((a) => a.deviceId === deviceId)!;
+    expect(row().autoUpdate).toBe(true);
+
+    db.update(agents).set({ autoUpdate: false }).where(eq(agents.id, first.agentId)).run();
+    redeemEnrollment(createEnrollmentToken(deviceId).token, generateSigningKey().publicKeyRaw, info);
+    expect(row().autoUpdate).toBe(false);
   });
 });

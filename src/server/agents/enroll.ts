@@ -65,6 +65,8 @@ export function redeemEnrollment(token: string, publicKey: string, info: AgentIn
         arch: info.arch,
         hostname: info.hostname,
         interfaces: info.interfaces,
+        // New agents update automatically; re-pairing keeps the previous agent's choice.
+        autoUpdate: existing?.autoUpdate ?? true,
         enrolledAt: now,
       })
       .returning()
