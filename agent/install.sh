@@ -135,6 +135,9 @@ Description=WolUPS agent
 Documentation=https://github.com/tfourj/WolUPS
 After=network-online.target
 Wants=network-online.target
+# Stop after Proxmox has shut down its guests, so WolUPS still sees the host while VMs and LXCs stop.
+# Harmless on hosts without Proxmox.
+Before=pve-guests.service
 
 [Service]
 Type=simple
