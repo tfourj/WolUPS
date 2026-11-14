@@ -17,7 +17,7 @@
 | `BASE_URL`           | `http://localhost:PORT` | Public URL, used for login cookies and agent install commands  |
 | `BETTER_AUTH_SECRET` | generated               | Session signing secret, at least 32 characters                 |
 | `ENCRYPTION_SECRET`  | generated               | Key for encrypting NUT passwords and channel credentials       |
-| `TZ`                 | `UTC`                   | Timezone for `{time}` in notifications                         |
+| `TZ`                 | `UTC`                   | Default timezone for `{time}` in notifications                 |
 | `LOG_LEVEL`          | `info`                  | `debug`, `info`, `warn` or `error`                             |
 
 Missing secrets are generated into `/data/secrets.json`. All data lives in the `/data` volume; back it up as a whole.
@@ -70,6 +70,9 @@ Templates are set in **Settings → Templates** and can be overridden per channe
 `{event}` `{title}` `{message}` `{ups}` `{device}` `{battery}` `{runtime}` `{status}` `{threshold}` `{version}` `{time}`
 
 **Preview** shows a template filled in with an example event.
+
+`{time}` uses the timezone and clock set in **Settings → General → Time display**, which also sets how the app
+shows dates.
 
 Failed deliveries are retried up to 6 times. Each attempt is shown in **Events**, where you can also retry by hand.
 

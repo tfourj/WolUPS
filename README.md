@@ -57,6 +57,7 @@ Bun, Hono, SQLite (Drizzle), Better Auth, React, Tailwind CSS, Go (agent)
 
    # Optional
    PORT=4321
+   # Default timezone, can be changed in Settings → General
    TZ=Europe/Berlin
    ```
 
