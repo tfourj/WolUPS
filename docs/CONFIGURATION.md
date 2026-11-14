@@ -72,8 +72,12 @@ Templates are set in **Settings → Templates** and can be overridden per channe
 
 **Preview** shows a template filled in with an example event.
 
+A line whose variables are all empty for an event is left out, so a template can list values that only some
+events carry.
+
 The preset menu in **Settings → Templates** fills in every event at once: Default, Minimalistic or Detailed, each
-also with icons. Presets can be edited afterwards and apply once saved.
+also with icons. The icon presets write the message themselves instead of using `{message}`. Presets can be edited
+afterwards and apply once saved.
 
 `{time}` uses the timezone and clock set in **Settings → General → Time display**, which also sets how the app
 shows dates.
