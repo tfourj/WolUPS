@@ -96,6 +96,10 @@ func newTestAgent(t *testing.T) (*agent, ed25519.PrivateKey, *[]string) {
 			calls = append(calls, "wake:"+mac)
 			return 1, nil
 		},
+		resolve: func(ip string) (string, error) {
+			calls = append(calls, "resolve:"+ip)
+			return "aa:bb:cc:dd:ee:ff", nil
+		},
 		update: func() (updateOutcome, error) { return updateOutcome{}, nil },
 		exit:   func(int) { calls = append(calls, "exit") },
 	}
@@ -227,5 +231,34 @@ func TestServerURLValidation(t *testing.T) {
 	}
 	if u, _ := websocketURL("https://x.example.com/sub"); u != "wss://x.example.com/sub/api/agents/ws" {
 		t.Fatalf("got %s", u)
+	}
+}
+
+func TestReadARP(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "arp")
+	table := `IP address       HW type     Flags       HW address            Mask     Device
+192.168.1.20     0x1         0x2         BC:24:11:4A:9E:01     *        eth0
+192.168.1.21     0x1         0x0         00:00:00:00:00:00     *        eth0
+`
+	if err := os.WriteFile(path, []byte(table), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if mac, ok := readARP(path, "192.168.1.20"); !ok || mac != "bc:24:11:4a:9e:01" {
+		t.Fatalf("got %q %v", mac, ok)
+	}
+	if _, ok := readARP(path, "192.168.1.21"); ok {
+		t.Fatal("incomplete entry returned")
+	}
+	if _, ok := readARP(path, "192.168.1.99"); ok {
+		t.Fatal("missing entry returned")
+	}
+}
+
+func TestLookupMACRejectsInvalidAndRemote(t *testing.T) {
+	if _, err := lookupMAC("not-an-ip"); err == nil {
+		t.Fatal("invalid IP accepted")
+	}
+	if _, err := lookupMAC("203.0.113.7"); err == nil {
+		t.Fatal("address outside local subnets accepted")
 	}
 }

@@ -15,7 +15,7 @@ import { signMessage, verifyMessage } from "../crypto/signing";
  */
 export const PROTOCOL_VERSION = 1;
 
-export const COMMAND_TYPES = ["shutdown", "wol", "update", "unpair", "ping"] as const;
+export const COMMAND_TYPES = ["shutdown", "wol", "resolve_mac", "update", "unpair", "ping"] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
 export const HELLO_MAX_SKEW_MS = 5 * 60 * 1000;

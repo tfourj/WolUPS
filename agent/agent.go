@@ -25,6 +25,7 @@ const statusInterval = 30 * time.Second
 type actions struct {
 	poweroff func() error
 	wake     func(mac, broadcast string, port int) (int, error)
+	resolve  func(ip string) (string, error)
 	update   func() (updateOutcome, error)
 	exit     func(code int)
 }
@@ -44,7 +45,8 @@ func systemActions(st *persistedState, binaryPath string) actions {
 			}
 			return errors.New("systemctl not found")
 		},
-		wake: sendWake,
+		wake:    sendWake,
+		resolve: lookupMAC,
 		update: func() (updateOutcome, error) {
 			base, err := validateReleaseBase(st.ReleaseBase)
 			if err != nil {
@@ -292,6 +294,16 @@ func (a *agent) handleCommand(ctx context.Context, payload, sig string) {
 			log.Printf("sent wake packet for %s to %d target(s)", args.MAC, sent)
 		}
 		a.ack(ctx, cmd.ID, err, map[string]any{"targets": sent})
+	case "resolve_mac":
+		var args struct {
+			IP string `json:"ip"`
+		}
+		if err := json.Unmarshal(cmd.Args, &args); err != nil {
+			a.ack(ctx, cmd.ID, errors.New("invalid arguments"), nil)
+			return
+		}
+		mac, err := a.actions.resolve(args.IP)
+		a.ack(ctx, cmd.ID, err, map[string]any{"mac": mac})
 	case "update":
 		log.Print("update requested")
 		outcome, err := a.actions.update()
