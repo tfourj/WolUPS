@@ -12,6 +12,7 @@ import { shutdownNow } from "../monitor/shutdown";
 import { wakeNow } from "../monitor/wake";
 import { normalizeMac } from "../wol/magic";
 import { resolveMac } from "../wol/resolve-mac";
+import { checkWake } from "../wol/check";
 import { compareNames } from "../../shared/sort";
 import { isNewerVersion } from "../../shared/version";
 import { parseBody, patchSchema } from "./util";
@@ -169,6 +170,11 @@ deviceRoutes.post("/:id/enroll", (c) => {
 deviceRoutes.post("/:id/shutdown", async (c) => c.json(await shutdownNow(c.req.param("id"))));
 
 deviceRoutes.post("/:id/wake", async (c) => c.json(await wakeNow(c.req.param("id"))));
+
+deviceRoutes.post("/:id/wake-check", async (c) => {
+  const result = await checkWake(c.req.param("id"));
+  return result ? c.json(result) : c.json({ error: "not found" }, 404);
+});
 
 function agentFor(deviceId: string) {
   return db.select().from(agents).where(eq(agents.deviceId, deviceId)).get();
