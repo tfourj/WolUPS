@@ -5,9 +5,31 @@ export type TemplateVars = Record<string, string>;
 
 export type Template = { title: string; body: string };
 
-/** Replace {name} placeholders. Unknown placeholders are left untouched. */
+const PLACEHOLDER = /\{([a-z_]+)\}/gi;
+
+/** A line is dropped when it has placeholders and every one of them is empty for this event. */
+function hasOnlyEmptyValues(line: string, vars: TemplateVars): boolean {
+  const names = [...line.matchAll(PLACEHOLDER)].map((match) => match[1]);
+  return names.length > 0 && names.every((name) => vars[name] === "");
+}
+
+/**
+ * Replace {name} placeholders. Unknown placeholders are left untouched, and lines whose values are
+ * all empty are left out.
+ */
 export function renderTemplate(template: string, vars: TemplateVars): string {
-  return template.replace(/\{([a-z_]+)\}/gi, (match, name: string) => (name in vars ? vars[name] : match));
+  const lines = template.split("\n");
+  const kept = lines.filter((line) => !hasOnlyEmptyValues(line, vars));
+  const text = kept.join("\n").replace(PLACEHOLDER, (match, name: string) => (name in vars ? vars[name] : match));
+  return kept.length < lines.length ? text.trim() : text;
+}
+
+/** Render a notification. A title or body that comes out empty falls back to the event's own. */
+export function renderMessage(template: Template, vars: TemplateVars): Template {
+  return {
+    title: renderTemplate(template.title, vars) || vars.title || "",
+    body: renderTemplate(template.body, vars) || vars.message || "",
+  };
 }
 
 /** Channel override first, then the global template for the event type, then the default. */
@@ -33,6 +55,9 @@ const SAMPLE_VARS: TemplateVars = {
   status: "OB",
   threshold: "30%",
   version: "1.4.0",
+  duration: "",
+  error: "",
+  via: "",
 };
 
 /** Agent events carry no UPS data. */
@@ -48,7 +73,7 @@ const SAMPLES: Record<EventType, Sample> = {
   ups_power_restored: {
     title: "Rack UPS power restored",
     message: "Rack UPS is back on line power after 12m 30s, battery at 64%",
-    vars: { battery: "64%", status: "OL CHRG", device: "" },
+    vars: { battery: "64%", status: "OL CHRG", device: "", duration: "12m 30s" },
   },
   ups_low_battery: {
     title: "Rack UPS battery is low",
@@ -58,7 +83,7 @@ const SAMPLES: Record<EventType, Sample> = {
   ups_unreachable: {
     title: "Rack UPS is unreachable",
     message: "Cannot read Rack UPS from NUT: connection refused",
-    vars: { battery: "", runtime: "", status: "", device: "" },
+    vars: { battery: "", runtime: "", status: "", device: "", error: "connection refused" },
   },
   ups_reachable: {
     title: "Rack UPS is reachable again",
@@ -78,17 +103,17 @@ const SAMPLES: Record<EventType, Sample> = {
   shutdown_failed: {
     title: "Cannot reach nas",
     message: "nas should shut down at 28% but its agent is not connected. WolUPS keeps retrying.",
-    vars: { battery: "28%" },
+    vars: { battery: "28%", error: "agent is not connected" },
   },
   wake_sent: {
     title: "Waking nas",
     message: "Sent wake packet to nas via server",
-    vars: { battery: "64%", status: "OL" },
+    vars: { battery: "64%", status: "OL", via: "server" },
   },
   wake_failed: {
     title: "Could not wake nas",
     message: "Wake packet for nas failed: no agent on the subnet",
-    vars: { battery: "64%", status: "OL" },
+    vars: { battery: "64%", status: "OL", error: "no agent on the subnet" },
   },
   device_recovered: {
     title: "nas is back online",
@@ -123,7 +148,7 @@ const SAMPLES: Record<EventType, Sample> = {
   agent_update_failed: {
     title: "Agent update failed on nas",
     message: "Agent on nas could not update: checksum mismatch",
-    vars: AGENT_VARS,
+    vars: { ...AGENT_VARS, error: "checksum mismatch" },
   },
   login: {
     title: "New sign-in to WolUPS",
@@ -159,6 +184,5 @@ export function previewTemplate(
   now = new Date(),
   time: TimeOptions = {},
 ): Template {
-  const vars = sampleTemplateVars(eventType, now, time);
-  return { title: renderTemplate(template.title, vars), body: renderTemplate(template.body, vars) };
+  return renderMessage(template, sampleTemplateVars(eventType, now, time));
 }

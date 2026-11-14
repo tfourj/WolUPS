@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { DEFAULT_TEMPLATE, EVENT_LABELS, EVENT_TYPES, TEMPLATE_VARIABLES, type EventType } from "@shared/events";
+import { matchTemplatePreset, TEMPLATE_PRESETS } from "@shared/template-presets";
 import { Field } from "@/components/common";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { TimeSettings } from "@/components/TimeSettings";
@@ -29,6 +30,9 @@ import type { AppSettings, SystemInfo } from "@/lib/types";
 import { SecurityTab } from "./SecurityTab";
 
 type SettingsResponse = { settings: AppSettings; system: SystemInfo };
+
+/** Select value shown when the templates match no preset. Radix Select does not allow an empty value. */
+const CUSTOM_PRESET = "custom";
 
 function NumberField({
   label,
@@ -273,6 +277,12 @@ function TemplatesTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Pa
     setTemplates({ ...templates, [type]: { ...current, [key]: value } });
   };
 
+  const preset = matchTemplatePreset(templates);
+  const applyPreset = (id: string) => {
+    const next = TEMPLATE_PRESETS.find((p) => p.id === id);
+    if (next) setTemplates({ ...next.templates });
+  };
+
   const save = () => {
     // Drop templates equal to the default so they follow future default changes.
     const cleaned = Object.fromEntries(
@@ -285,6 +295,25 @@ function TemplatesTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Pa
     <Card>
       <CardHeader>
         <CardDescription>Variables: {TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(" ")}</CardDescription>
+        <CardAction>
+          <Select value={preset?.id ?? CUSTOM_PRESET} onValueChange={applyPreset}>
+            <SelectTrigger className="w-44" aria-label="Preset">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TEMPLATE_PRESETS.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.label}
+                </SelectItem>
+              ))}
+              {!preset && (
+                <SelectItem value={CUSTOM_PRESET} disabled>
+                  Custom
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </CardAction>
       </CardHeader>
       <CardContent className="divide-y">
         {types.map((type) => {

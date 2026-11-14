@@ -12,6 +12,7 @@ WolUPS/
 │   │   ├── events.ts                Event types, labels, severities, template variables
 │   │   ├── channels.ts              Notification channel types and their config fields
 │   │   ├── templates.ts             Template rendering and resolution
+│   │   ├── template-presets.ts      Ready-made template sets
 │   │   ├── time.ts                  Time display preferences and notification time format
 │   │   └── version.ts               Version comparison
 │   ├── server/

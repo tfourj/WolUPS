@@ -8,7 +8,7 @@ import { DEFAULT_EVENT_SEVERITY, type EventType, type Severity } from "../../sha
 import { decryptConfig, isChannelType, type ChannelRow } from "./channels";
 import { providers } from "./providers";
 import type { NotificationMessage } from "./providers/types";
-import { renderTemplate, resolveTemplate } from "../../shared/templates";
+import { renderMessage, resolveTemplate } from "../../shared/templates";
 import { templateVars } from "./templates";
 
 const log = createLogger("notify");
@@ -31,10 +31,8 @@ export function channelMatches(channel: ChannelRow, event: Pick<EventRow, "type"
 
 export function buildMessage(channel: ChannelRow, event: EventRow): NotificationMessage {
   const template = resolveTemplate(event.type, getSettings().templates, channel);
-  const vars = templateVars(event);
   return {
-    title: renderTemplate(template.title, vars),
-    body: renderTemplate(template.body, vars),
+    ...renderMessage(template, templateVars(event)),
     severity: (event.severity as Severity) ?? DEFAULT_EVENT_SEVERITY[event.type as EventType] ?? "info",
     event: event.type,
     time: event.createdAt,

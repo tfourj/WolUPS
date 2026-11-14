@@ -32,6 +32,9 @@ export function templateVars(event: TemplateEvent): TemplateVars {
     status: str(d.status),
     threshold: d.threshold === null || d.threshold === undefined ? "" : `${d.threshold}%`,
     version: str(d.version),
+    duration: str(d.duration),
+    error: str(d.error),
+    via: Array.isArray(d.via) ? d.via.join(", ") : str(d.via),
     time: formatTime(event.createdAt),
   };
 }
