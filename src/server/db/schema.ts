@@ -27,6 +27,9 @@ export const session = sqliteTable("session", {
   updatedAt: ts().notNull().default(now),
   ipAddress: text(),
   userAgent: text(),
+  // Updated on API requests, unlike updatedAt which only moves when the session is renewed.
+  lastActiveAt: ts(),
+  lastIp: text(),
   userId: text()
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),

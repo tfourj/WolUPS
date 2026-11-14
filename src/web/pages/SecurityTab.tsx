@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, Send } from "lucide-react";
-import { Link } from "react-router";
+import { Copy, Download, LogOut, Monitor, Send, Smartphone } from "lucide-react";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { encode } from "uqr";
 import { CHANNEL_TYPES } from "@shared/channels";
 import { Field, ToneBadge } from "@/components/common";
+import { ConfirmAction } from "@/components/confirm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,7 +21,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
-import type { Channel, LoginTestResult, SecurityStatus } from "@/lib/types";
+import { formatDateTime, timeAgo } from "@/lib/format";
+import type { Channel, LoginTestResult, SecurityStatus, SignedInDevice } from "@/lib/types";
 
 export const SECURITY_KEY = ["security"];
 
@@ -453,6 +455,99 @@ function LoginNotificationsCard({ status }: { status: SecurityStatus }) {
   );
 }
 
+const DEVICES_KEY = ["security", "sessions"];
+
+/** Every device signed in to the account, with a way to sign out some or all of them. */
+function DevicesCard() {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { data: devices = [] } = useQuery({
+    queryKey: DEVICES_KEY,
+    queryFn: () => api.get<SignedInDevice[]>("/security/sessions"),
+  });
+  const [selected, setSelected] = useState<string[]>([]);
+  // Devices that signed out elsewhere drop out of the selection.
+  const picked = selected.filter((id) => devices.some((d) => d.id === id && !d.current));
+
+  const revoke = useMutation({
+    mutationFn: () => api.post<SignedInDevice[]>("/security/sessions/revoke", { ids: picked }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(DEVICES_KEY, next);
+      toast.success(picked.length === 1 ? "Device signed out" : `${picked.length} devices signed out`);
+      setSelected([]);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  async function signOutAll() {
+    try {
+      await api.post("/security/sessions/revoke-all");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not sign out");
+      return;
+    }
+    // The session is already gone; this only clears the cookie and the cached session.
+    await authClient.signOut().catch(() => null);
+    navigate("/login");
+  }
+
+  const toggle = (id: string, on: boolean) =>
+    setSelected((ids) => (on ? [...new Set([...ids, id])] : ids.filter((x) => x !== id)));
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Devices
+          <ToneBadge tone="muted">{devices.length}</ToneBadge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {devices.map((device) => {
+          const Icon = /iOS|Android/.test(device.name) ? Smartphone : Monitor;
+          return (
+            <label key={device.id} className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
+              <Checkbox
+                checked={picked.includes(device.id)}
+                disabled={device.current}
+                onCheckedChange={(v) => toggle(device.id, v === true)}
+              />
+              <Icon className="text-muted-foreground size-4 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium" title={device.userAgent ?? undefined}>
+                    {device.name}
+                  </span>
+                  {device.current && <ToneBadge tone="success">This device</ToneBadge>}
+                </div>
+                <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
+                  <span className="font-mono">{device.ip ?? "Unknown IP"}</span>
+                  <span title={formatDateTime(device.lastActiveAt)}>Last active {timeAgo(device.lastActiveAt)}</span>
+                  <span>Signed in {formatDateTime(device.signedInAt)}</span>
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </CardContent>
+      <CardFooter className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" disabled={picked.length === 0 || revoke.isPending} onClick={() => revoke.mutate()}>
+          <LogOut />
+          Sign out selected
+        </Button>
+        <ConfirmAction
+          trigger={<Button variant="destructive">Sign out all</Button>}
+          title="Sign out of all devices?"
+          description="Every device is signed out, including this one. You will need to sign in again."
+          confirmLabel="Sign out all"
+          destructive
+          onConfirm={signOutAll}
+        />
+      </CardFooter>
+    </Card>
+  );
+}
+
 export function SecurityTab() {
   const { data } = useQuery({ queryKey: SECURITY_KEY, queryFn: () => api.get<SecurityStatus>("/security") });
   if (!data) return null;
@@ -461,6 +556,7 @@ export function SecurityTab() {
     <div className="grid gap-4 lg:grid-cols-2">
       <TwoFactorCard status={data} />
       <LoginNotificationsCard status={data} />
+      <DevicesCard />
     </div>
   );
 }

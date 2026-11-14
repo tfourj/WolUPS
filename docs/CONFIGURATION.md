@@ -86,13 +86,15 @@ Failed deliveries are retried up to 6 times. Each attempt is shown in **Events**
 
 ## Account security
 
-**Settings → Security** has two options:
+**Settings → Security** has three options:
 
 - **Two-factor authentication:** scan the QR code with an authenticator app and enter a code to turn it on. Save the
   10 backup codes it shows; each works once. Sign-ins then ask for a code, and **Trust this device** skips it for 30
   days.
 - **Login notifications:** pick the channels that get a message for every sign-in, with the method, device and IP
   address. This is the **New sign-in** event in each channel's event list. **Send test** sends a sample.
+- **Devices:** lists every signed-in device with its browser, IP address, last activity and sign-in time. Tick
+  devices and use **Sign out selected**, or **Sign out all** to sign out everywhere, including the current device.
 
 ## Reverse proxy, Coolify and Cloudflare
 

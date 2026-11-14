@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVars } from "../auth/middleware";
 import { loginEvent } from "../auth/login-events";
+import { listSessions, revokeAllSessions, revokeSessions } from "../auth/sessions";
 import { clientIp } from "../client-ip";
 import { db } from "../db/client";
 import { channels, user } from "../db/schema";
@@ -90,4 +91,27 @@ securityRoutes.post("/login-channels/test", async (c) => {
     }),
   );
   return c.json({ results });
+});
+
+const sessionIdsSchema = z.object({ ids: z.array(z.string()).min(1).max(100) });
+
+/** Devices signed in to the account. */
+securityRoutes.get("/sessions", (c) => {
+  const { user: owner, session: current } = c.get("session");
+  return c.json(listSessions(owner.id, current.id));
+});
+
+/** Sign out the picked devices. The requesting device is skipped. */
+securityRoutes.post("/sessions/revoke", async (c) => {
+  const body = await parseBody(c, sessionIdsSchema);
+  if (body instanceof Response) return body;
+  const { user: owner, session: current } = c.get("session");
+  revokeSessions(owner.id, body.ids, current.id);
+  return c.json(listSessions(owner.id, current.id));
+});
+
+/** Sign out every device, including this one. */
+securityRoutes.post("/sessions/revoke-all", (c) => {
+  const revoked = revokeAllSessions(c.get("session").user.id);
+  return c.json({ revoked });
 });
