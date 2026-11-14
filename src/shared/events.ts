@@ -95,6 +95,9 @@ export const TEMPLATE_VARIABLES = [
   "status",
   "threshold",
   "version",
+  "duration",
+  "error",
+  "via",
   "time",
 ] as const;
 

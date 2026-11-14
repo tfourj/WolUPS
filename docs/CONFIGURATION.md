@@ -67,7 +67,8 @@ timeout after its first wake packet, or the conditions are not met within 24 hou
 
 Templates are set in **Settings → Templates** and can be overridden per channel. Variables:
 
-`{event}` `{title}` `{message}` `{ups}` `{device}` `{battery}` `{runtime}` `{status}` `{threshold}` `{version}` `{time}`
+`{event}` `{title}` `{message}` `{ups}` `{device}` `{battery}` `{runtime}` `{status}` `{threshold}` `{version}`
+`{duration}` `{error}` `{via}` `{time}`
 
 **Preview** shows a template filled in with an example event.
 

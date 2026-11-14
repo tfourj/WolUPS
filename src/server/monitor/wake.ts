@@ -92,28 +92,33 @@ export async function processWakes(now = Date.now()) {
         });
       } else if (action === "give_up") {
         db.update(outageDevices).set({ wakeGaveUpAt: new Date(now) }).where(where).run();
+        const error =
+          `still offline ${s.clientTimeoutSec}s after the first wake packet ` + `(${od.wakeAttempts} attempts)`;
         emitEvent({
           type: "wake_failed",
           deviceId: device.id,
           upsId: upsRow.id,
           title: `${device.name} did not come back`,
-          message:
-            `${device.name} is still offline ${s.clientTimeoutSec}s after the first wake packet ` +
-            `(${od.wakeAttempts} attempts)`,
-          data: { device: device.name, ups: upsRow.name, attempts: od.wakeAttempts },
+          message: `${device.name} is ${error}`,
+          data: { device: device.name, ups: upsRow.name, attempts: od.wakeAttempts, error },
         });
       } else if (action === "expired") {
         db.update(outageDevices).set({ wakeGaveUpAt: new Date(now) }).where(where).run();
         const { minBatteryPercent } = wakeConditions(device, s);
+        const error = `${upsRow.name} did not reach ${minBatteryPercent}% on line power within 24 hours`;
         emitEvent({
           type: "wake_failed",
           deviceId: device.id,
           upsId: upsRow.id,
           title: `${device.name} was not woken`,
-          message:
-            `${device.name} was not woken: ${upsRow.name} did not reach ${minBatteryPercent}% ` +
-            `on line power within 24 hours`,
-          data: { device: device.name, ups: upsRow.name, battery: upsRow.battery, threshold: minBatteryPercent },
+          message: `${device.name} was not woken: ${error}`,
+          data: {
+            device: device.name,
+            ups: upsRow.name,
+            battery: upsRow.battery,
+            threshold: minBatteryPercent,
+            error,
+          },
         });
       } else if (action === "send") {
         db.update(outageDevices)
@@ -134,7 +139,13 @@ export async function processWakes(now = Date.now()) {
             message: result.ok
               ? `Sent wake packet to ${device.name} via ${result.via.join(", ")}`
               : `Wake packet for ${device.name} failed: ${result.errors.join("; ")}`,
-            data: { device: device.name, ups: upsRow.name, battery: upsRow.battery, via: result.via },
+            data: {
+              device: device.name,
+              ups: upsRow.name,
+              battery: upsRow.battery,
+              via: result.via,
+              error: result.ok ? undefined : result.errors.join("; "),
+            },
           });
         }
         if (!result.ok) log.warn("wake failed", { device: device.name, errors: result.errors });
@@ -155,7 +166,12 @@ export async function wakeNow(deviceId: string) {
     message: result.ok
       ? `Sent wake packet to ${device.name} via ${result.via.join(", ")}`
       : `Wake packet for ${device.name} failed: ${result.errors.join("; ")}`,
-    data: { device: device.name, via: result.via, reason: "manual" },
+    data: {
+      device: device.name,
+      via: result.via,
+      reason: "manual",
+      error: result.ok ? undefined : result.errors.join("; "),
+    },
   });
   return result;
 }

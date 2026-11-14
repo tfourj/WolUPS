@@ -95,7 +95,13 @@ export function processShutdowns(row: UpsRow, snap: UpsSnapshot, outage: OutageR
         deviceId: device.id,
         title: `Cannot reach ${device.name}`,
         message: `${device.name} should shut down at ${snap.battery ?? "?"}% but its agent is not connected. WolUPS keeps retrying.`,
-        data: { ups: row.name, device: device.name, battery: snap.battery, threshold: device.shutdownBatteryPercent },
+        data: {
+          ups: row.name,
+          device: device.name,
+          battery: snap.battery,
+          threshold: device.shutdownBatteryPercent,
+          error: "agent is not connected",
+        },
       });
     }
   }
