@@ -109,6 +109,50 @@ export async function checkForAgentUpdates() {
   for (const agent of db.select().from(agents).all()) handleAgentRelease(agent, latest);
 }
 
+/** Longest wait for an agent to download, verify and install an update before answering. */
+const UPDATE_WAIT_MS = 2 * 60 * 1000;
+
+export type UpdateCheck =
+  | { ok: true; status: "current" | "updating"; version: string | null; latestVersion: string }
+  | { ok: false; error: string };
+
+/**
+ * "Check for update" from the UI: look up the latest release now and, only if it is newer,
+ * ask the agent to update and wait for its answer.
+ */
+export async function checkAgentUpdateNow(agentId: string): Promise<UpdateCheck> {
+  const agent = db.select().from(agents).where(eq(agents.id, agentId)).get();
+  if (!agent) return { ok: false, error: "no agent paired" };
+  if (!agentHub.isConnected(agent.id)) return { ok: false, error: "agent is not connected" };
+  try {
+    latest = await fetchLatestRelease();
+    lastError = null;
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: `could not check for releases: ${lastError}` };
+  }
+  if (!latest) return { ok: false, error: "no agent release has been published yet" };
+
+  if (!isNewerVersion(latest.version, agent.version)) {
+    db.update(agents)
+      .set({
+        updateStatus: "current",
+        latestVersion: latest.version,
+        lastUpdateError: null,
+        updateCheckedAt: new Date(),
+      })
+      .where(eq(agents.id, agent.id))
+      .run();
+    return { ok: true, status: "current", version: agent.version, latestVersion: latest.version };
+  }
+
+  const command = requestAgentUpdate(agent.id);
+  const ack = await agentHub.waitForAck(command.id, UPDATE_WAIT_MS);
+  if (!ack.ok) return { ok: false, error: ack.error ?? "update failed" };
+  const latestVersion = typeof ack.result?.latestVersion === "string" ? ack.result.latestVersion : latest.version;
+  return { ok: true, status: ack.result?.updated ? "updating" : "current", version: agent.version, latestVersion };
+}
+
 // An agent that was offline during the last check updates as soon as it reconnects.
 agentHub.onConnect((agentId) => {
   if (!latest) return;

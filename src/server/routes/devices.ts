@@ -5,7 +5,7 @@ import { db } from "../db/client";
 import { agents, devices, ups } from "../db/schema";
 import { agentHub } from "../agents/hub";
 import { createEnrollmentToken } from "../agents/enroll";
-import { latestAgentRelease, requestAgentUpdate } from "../agents/releases";
+import { checkAgentUpdateNow, latestAgentRelease } from "../agents/releases";
 import { env } from "../env";
 import { emitEvent } from "../events";
 import { shutdownNow } from "../monitor/shutdown";
@@ -173,12 +173,10 @@ deviceRoutes.post("/:id/agent/ping", async (c) => {
   return c.json({ ...ack, latencyMs: Date.now() - started });
 });
 
-deviceRoutes.post("/:id/agent/update", (c) => {
+deviceRoutes.post("/:id/agent/update", async (c) => {
   const agent = agentFor(c.req.param("id"));
   if (!agent) return c.json({ ok: false, error: "no agent paired" }, 404);
-  if (!agentHub.isConnected(agent.id)) return c.json({ ok: false, error: "agent is not connected" }, 409);
-  requestAgentUpdate(agent.id);
-  return c.json({ ok: true });
+  return c.json(await checkAgentUpdateNow(agent.id));
 });
 
 deviceRoutes.patch("/:id/agent", async (c) => {
