@@ -2,7 +2,8 @@
 
 ```
 WolUPS/
-├── Dockerfile, docker-compose.yml   Single-container image and example compose file
+├── Dockerfile                       Single-container image
+├── docker-compose.yml               Compose file for the published image (-local builds from source)
 ├── drizzle/                         SQL migrations, applied on startup
 ├── drizzle.config.ts                drizzle-kit config (bun run db:generate)
 ├── vite.config.ts, components.json  Web UI build and shadcn/ui config
@@ -33,6 +34,7 @@ WolUPS/
 │       └── pages/                   Dashboard, UPS, Devices, Events, Channels, Settings, auth pages
 ├── agent/                           Go agent, install.sh and uninstall.sh
 ├── tests/                           bun test suites
-├── docs/                            Agent guide and this file
+├── scripts/                         README screenshot generator with demo data
+├── docs/                            Configuration, build guide, screenshots and logo
 └── .github/workflows/               CI, Docker image, agent release
 ```
