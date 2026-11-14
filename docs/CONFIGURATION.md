@@ -54,6 +54,7 @@ Wake packets only reach your LAN from the container with `network_mode: host`. W
 same network sends them. Choose server, agent or both in **Settings → Wake**. MAC lookup uses the same
 route: the server's ARP table on host networking, otherwise an agent on the same subnet.
 
+**Settings → Wake** shows whether the server and each agent can send, and which devices they reach.
 **Check Wake-on-LAN** in the device menu shows whether the server or an agent can reach the device and sends a
 harmless test packet (MAC `00:00:00:00:00:00`) from each.
 
