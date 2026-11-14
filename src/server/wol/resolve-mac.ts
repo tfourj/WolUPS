@@ -1,11 +1,11 @@
 import { createSocket } from "node:dgram";
-import { lookup } from "node:dns/promises";
 import { readFile } from "node:fs/promises";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
 import { agents, devices } from "../db/schema";
 import { agentHub } from "../agents/hub";
-import { cidrContains, isIpv4 } from "./cidr";
+import { resolveIpv4 } from "../net/resolve";
+import { cidrContains } from "./cidr";
 import { normalizeMac } from "./magic";
 
 export type MacLookup = { ok: true; mac: string; ip: string; via: string } | { ok: false; error: string };
@@ -75,14 +75,8 @@ async function fromServer(ip: string): Promise<string | null> {
  * interfaces), the server's ARP table, then a connected agent on the same subnet.
  */
 export async function resolveMac(host: string, deviceId?: string): Promise<MacLookup> {
-  let ip = host.trim();
-  if (!isIpv4(ip)) {
-    try {
-      ip = (await lookup(ip, { family: 4 })).address;
-    } catch {
-      return { ok: false, error: `could not resolve ${host}` };
-    }
-  }
+  const ip = await resolveIpv4(host);
+  if (!ip) return { ok: false, error: `could not resolve ${host}` };
 
   if (deviceId) {
     const own = db.select().from(agents).where(eq(agents.deviceId, deviceId)).get();

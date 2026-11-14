@@ -4,7 +4,8 @@ import { agents, devices } from "../db/schema";
 import { agentHub } from "../agents/hub";
 import { createLogger } from "../logger";
 import { getSettings } from "../settings";
-import { cidrContains, isIpv4, parseCidr } from "./cidr";
+import { resolveIpv4 } from "../net/resolve";
+import { cidrContains, parseCidr } from "./cidr";
 import { sendMagicPacket } from "./magic";
 
 const log = createLogger("wol");
@@ -13,10 +14,10 @@ type DeviceRow = typeof devices.$inferSelect;
 
 export type WakeResult = { ok: boolean; via: string[]; errors: string[] };
 
-type Relay = { agentId: string; name: string; broadcast: string };
+export type Relay = { agentId: string; name: string; broadcast: string; sameSubnet: boolean };
 
 /** Connected agents that can send a wake packet for this device, same-subnet agents first. */
-function relayCandidates(target: DeviceRow): Relay[] {
+export function relayCandidates(target: DeviceRow, ip: string | null): Relay[] {
   const connected = agentHub.connectedAgentIds();
   if (connected.length === 0) return [];
   const rows = db
@@ -30,11 +31,11 @@ function relayCandidates(target: DeviceRow): Relay[] {
   const sameSubnet: Relay[] = [];
   const others: Relay[] = [];
   for (const { agent, name } of rows) {
-    const cidr = target.host && isIpv4(target.host)
-      ? agent.interfaces?.flatMap((i) => i.cidrs).find((c) => cidrContains(c, target.host!))
-      : undefined;
-    if (cidr) sameSubnet.push({ agentId: agent.id, name, broadcast: parseCidr(cidr)?.broadcast ?? "" });
-    else others.push({ agentId: agent.id, name, broadcast: "" });
+    const cidr = ip ? agent.interfaces?.flatMap((i) => i.cidrs).find((c) => cidrContains(c, ip)) : undefined;
+    if (cidr) {
+      sameSubnet.push({ agentId: agent.id, name, broadcast: parseCidr(cidr)?.broadcast ?? "", sameSubnet: true });
+    }
+    else others.push({ agentId: agent.id, name, broadcast: "", sameSubnet: false });
   }
   return [...sameSubnet, ...others];
 }
@@ -58,8 +59,10 @@ export async function wakeDevice(device: DeviceRow): Promise<WakeResult> {
   }
 
   if (wolMode !== "server") {
-    for (const relay of relayCandidates(device).slice(0, 2)) {
-      const ack = await agentHub.sendAndWait(relay.agentId, "wol", { mac: device.mac, broadcast: relay.broadcast }, 10_000);
+    const ip = await resolveIpv4(device.host);
+    for (const relay of relayCandidates(device, ip).slice(0, 2)) {
+      const args = { mac: device.mac, broadcast: relay.broadcast };
+      const ack = await agentHub.sendAndWait(relay.agentId, "wol", args, 10_000);
       if (ack.ok) {
         result.via.push(`agent ${relay.name}`);
         break;
