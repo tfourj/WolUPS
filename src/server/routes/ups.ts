@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db/client";
+import { compareNames } from "../../shared/sort";
 import { outages, ups, upsSamples } from "../db/schema";
 import { fetchUpsSnapshot, fetchUpsVars, listUps } from "../nut/client";
 import { nutTarget, upsMonitor } from "../monitor/ups-monitor";
@@ -34,7 +35,14 @@ const upsSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-upsRoutes.get("/", (c) => c.json(db.select().from(ups).orderBy(asc(ups.name)).all().map(serializeUps)));
+upsRoutes.get("/", (c) => {
+  const rows = db
+    .select()
+    .from(ups)
+    .all()
+    .sort((a, b) => compareNames(a.name, b.name));
+  return c.json(rows.map(serializeUps));
+});
 
 upsRoutes.post("/", async (c) => {
   const body = await parseBody(c, upsSchema);

@@ -57,6 +57,12 @@ export function DeviceDialog({
     if (open) setForm(toForm(device));
   }, [open, device]);
 
+  // New devices start on the first UPS once the list has loaded.
+  const firstUpsId = upsList[0]?.id;
+  useEffect(() => {
+    if (open && !device && firstUpsId) setForm((f) => (f.upsId === NONE ? { ...f, upsId: firstUpsId } : f));
+  }, [open, device, firstUpsId]);
+
   const [lookingUp, setLookingUp] = useState(false);
 
   async function getMac() {

@@ -49,6 +49,11 @@ function loadDevice(id: string) {
   return row ? serialize(row.device, row.agent, row.upsName) : null;
 }
 
+function firstUpsId(): string | null {
+  const names = db.select({ id: ups.id, name: ups.name }).from(ups).all();
+  return names.sort((a, b) => compareNames(a.name, b.name))[0]?.id ?? null;
+}
+
 const macSchema = z
   .string()
   .trim()
@@ -104,9 +109,11 @@ deviceRoutes.post("/resolve-mac", async (c) => {
 deviceRoutes.post("/", async (c) => {
   const body = await parseBody(c, deviceSchema);
   if (body instanceof Response) return body;
+  // Without an explicit choice, a new device is powered by the first UPS (by name).
+  const upsId = body.upsId === undefined ? firstUpsId() : body.upsId || null;
   const row = db
     .insert(devices)
-    .values({ ...body, host: body.host ?? null, mac: body.mac ?? null, upsId: body.upsId || null })
+    .values({ ...body, host: body.host ?? null, mac: body.mac ?? null, upsId })
     .returning()
     .get();
   return c.json(loadDevice(row.id), 201);
