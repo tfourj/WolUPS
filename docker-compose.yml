@@ -16,6 +16,11 @@ services:
       TZ: ${TZ:-UTC}
     volumes:
       - wolups-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   wolups-data:
