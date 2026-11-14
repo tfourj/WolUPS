@@ -1,9 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { twoFactor as twoFactorPlugin } from "better-auth/plugins";
 import { count } from "drizzle-orm";
 import { db } from "../db/client";
-import { account, session, user, verification } from "../db/schema";
+import { account, session, twoFactor, user, verification } from "../db/schema";
 import { env } from "../env";
 
 export function hasAccount(): boolean {
@@ -18,7 +19,7 @@ export const auth = betterAuth({
   baseURL: env.baseUrl,
   basePath: "/api/auth",
   secret: env.betterAuthSecret,
-  database: drizzleAdapter(db, { provider: "sqlite", schema: { user, session, account, verification } }),
+  database: drizzleAdapter(db, { provider: "sqlite", schema: { user, session, account, verification, twoFactor } }),
   emailAndPassword: { enabled: true, minPasswordLength: 8, autoSignIn: true },
   trustedOrigins: [env.baseUrl, ...devOrigins],
   session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
@@ -32,6 +33,10 @@ export const auth = betterAuth({
     useSecureCookies: env.baseUrl.startsWith("https://"),
     ipAddress: { ipAddressHeaders: ["x-wolups-client-ip"] },
   },
+  plugins: [
+    // Authenticator app codes with single-use backup codes.
+    twoFactorPlugin({ issuer: "WolUPS", backupCodeOptions: { amount: 10, length: 10 } }),
+  ],
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path === "/sign-up/email" && hasAccount()) {
