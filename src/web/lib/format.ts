@@ -1,3 +1,6 @@
+import type { TimeOptions } from "@shared/templates";
+import { DEFAULT_TIME_PREFERENCES, hourCycleFor, type TimePreferences } from "@shared/time";
+
 export function formatRuntime(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return "-";
   const h = Math.floor(seconds / 3600);
@@ -8,10 +11,32 @@ export function formatRuntime(seconds: number | null | undefined): string {
   return `${s}s`;
 }
 
+let timePreferences: TimePreferences = DEFAULT_TIME_PREFERENCES;
+let serverTimezone: string | undefined;
+
+/** Set the time display used by every formatter below. Pages remount when it changes. */
+export function setTimePreferences(prefs: TimePreferences, serverZone?: string) {
+  timePreferences = prefs;
+  serverTimezone = serverZone;
+}
+
+/** Timezone and hour cycle from the time display, merged into `options`. */
+export function withTimePreferences(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions {
+  const { timezone, timeFormat } = timePreferences;
+  return { ...options, timeZone: timezone ?? undefined, hourCycle: hourCycleFor(timeFormat) };
+}
+
+/** Timezone and clock the server uses for `{time}` in notifications. */
+export function notificationTimeOptions(): TimeOptions {
+  return { timeZone: timePreferences.timezone ?? serverTimezone, timeFormat: timePreferences.timeFormat };
+}
+
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
+/** "5 minutes ago", or the full date and time when absolute times are chosen. */
 export function timeAgo(value: string | number | Date | null | undefined): string {
   if (!value) return "never";
+  if (timePreferences.timeStyle === "absolute") return formatDateTime(value);
   const diff = (new Date(value).getTime() - Date.now()) / 1000;
   const abs = Math.abs(diff);
   if (abs < 45) return "just now";
@@ -22,7 +47,7 @@ export function timeAgo(value: string | number | Date | null | undefined): strin
 
 export function formatDateTime(value: string | number | Date | null | undefined): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return new Date(value).toLocaleString(undefined, withTimePreferences({ dateStyle: "medium", timeStyle: "short" }));
 }
 
 export function formatDuration(ms: number): string {
