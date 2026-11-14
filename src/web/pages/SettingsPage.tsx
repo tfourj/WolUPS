@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Eye, EyeOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { DEFAULT_TEMPLATE, EVENT_LABELS, EVENT_TYPES, TEMPLATE_VARIABLES } from "@shared/events";
+import { DEFAULT_TEMPLATE, EVENT_LABELS, EVENT_TYPES, TEMPLATE_VARIABLES, type EventType } from "@shared/events";
 import { Field } from "@/components/common";
+import { TemplatePreview } from "@/components/TemplatePreview";
 import { WAKE_DELIVERY_KEY, WakeDeliveryStatus } from "@/components/WakeDeliveryStatus";
 import { Button } from "@/components/ui/button";
 import {
@@ -253,7 +254,11 @@ function WakeTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Partial
 function TemplatesTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Partial<AppSettings>) => Promise<unknown> }) {
   const [templates, setTemplates] = useState(data.settings.templates);
   useEffect(() => setTemplates(data.settings.templates), [data.settings.templates]);
+  const [previewing, setPreviewing] = useState<EventType[]>([]);
   const types = EVENT_TYPES.filter((t) => t !== "test");
+
+  const togglePreview = (type: EventType) =>
+    setPreviewing((p) => (p.includes(type) ? p.filter((t) => t !== type) : [...p, type]));
 
   const update = (type: string, key: "title" | "body", value: string) => {
     const current = templates[type] ?? DEFAULT_TEMPLATE;
@@ -276,8 +281,9 @@ function TemplatesTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Pa
       <CardContent className="divide-y">
         {types.map((type) => {
           const t = templates[type] ?? DEFAULT_TEMPLATE;
+          const open = previewing.includes(type);
           return (
-            <div key={type} className="grid gap-3 py-4 first:pt-0 md:grid-cols-[12rem_1fr_2fr]">
+            <div key={type} className="grid gap-3 py-4 first:pt-0 md:grid-cols-[12rem_1fr_2fr_auto]">
               <p className="pt-2 text-sm font-medium">{EVENT_LABELS[type]}</p>
               <Input value={t.title} onChange={(e) => update(type, "title", e.target.value)} aria-label="Title" />
               <Textarea
@@ -287,6 +293,16 @@ function TemplatesTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Pa
                 className="min-h-9"
                 aria-label="Body"
               />
+              <Button
+                variant="outline"
+                onClick={() => togglePreview(type)}
+                aria-pressed={open}
+                className="justify-self-start"
+              >
+                {open ? <EyeOff /> : <Eye />}
+                Preview
+              </Button>
+              {open && <TemplatePreview eventType={type} template={t} className="md:col-start-2 md:col-end-4" />}
             </div>
           );
         })}
