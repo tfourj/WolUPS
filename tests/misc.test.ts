@@ -3,6 +3,7 @@ import { z } from "zod";
 import { patchSchema } from "../src/server/routes/util";
 import { cidrContains, parseCidr } from "../src/server/wol/cidr";
 import { magicPacket, normalizeMac, parseMac } from "../src/server/wol/magic";
+import { compareNames } from "../src/shared/sort";
 import { isNewerVersion } from "../src/shared/version";
 
 describe("patchSchema", () => {
@@ -38,5 +39,12 @@ describe("versions", () => {
     expect(isNewerVersion("v1.10.0", "1.2.0")).toBe(true);
     expect(isNewerVersion("1.0.0", "dev")).toBe(true);
     expect(isNewerVersion("garbage", "1.0.0")).toBe(false);
+  });
+});
+
+describe("name sorting", () => {
+  test("is natural and case-insensitive", () => {
+    const names = ["pve-10", "Zeta", "pve-2", "alpha", "PVE-1"];
+    expect(names.sort(compareNames)).toEqual(["alpha", "PVE-1", "pve-2", "pve-10", "Zeta"]);
   });
 });
