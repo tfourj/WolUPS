@@ -170,7 +170,9 @@ export function AppLayout() {
         <div className="pb-2">
           <RepoLink />
         </div>
-        <UserMenu />
+        <div className="border-sidebar-border -mx-3 border-t px-3 pt-3">
+          <UserMenu />
+        </div>
       </aside>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -185,7 +187,9 @@ export function AppLayout() {
           <div className="pb-2">
             <RepoLink />
           </div>
-          <UserMenu />
+          <div className="border-sidebar-border -mx-3 border-t px-3 pt-3">
+            <UserMenu />
+          </div>
         </SheetContent>
       </Sheet>
 
