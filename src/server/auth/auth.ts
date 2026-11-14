@@ -6,6 +6,7 @@ import { count } from "drizzle-orm";
 import { db } from "../db/client";
 import { account, session, twoFactor, user, verification } from "../db/schema";
 import { env } from "../env";
+import { loginEventsPlugin } from "./login-events";
 
 export function hasAccount(): boolean {
   const row = db.select({ n: count() }).from(user).get();
@@ -36,6 +37,8 @@ export const auth = betterAuth({
   plugins: [
     // Authenticator app codes with single-use backup codes.
     twoFactorPlugin({ issuer: "WolUPS", backupCodeOptions: { amount: 10, length: 10 } }),
+    // Keep last so it sees the session only once two-factor has finished.
+    loginEventsPlugin(),
   ],
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
