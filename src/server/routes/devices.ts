@@ -12,7 +12,7 @@ import { shutdownNow } from "../monitor/shutdown";
 import { wakeNow } from "../monitor/wake";
 import { normalizeMac } from "../wol/magic";
 import { isNewerVersion } from "../../shared/version";
-import { parseBody } from "./util";
+import { parseBody, patchSchema } from "./util";
 
 export const deviceRoutes = new Hono();
 
@@ -99,7 +99,7 @@ deviceRoutes.post("/", async (c) => {
 });
 
 deviceRoutes.patch("/:id", async (c) => {
-  const body = await parseBody(c, deviceSchema.partial());
+  const body = await parseBody(c, patchSchema(deviceSchema));
   if (body instanceof Response) return body;
   const id = c.req.param("id");
   const existing = db.select().from(devices).where(eq(devices.id, id)).get();

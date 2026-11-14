@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { latestAgentRelease, checkForAgentUpdates } from "../agents/releases";
 import { env } from "../env";
 import { appSettingsSchema, getSettings, updateSettings } from "../settings";
-import { parseBody } from "./util";
+import { parseBody, patchSchema } from "./util";
 
 export const settingsRoutes = new Hono();
 
@@ -21,7 +21,7 @@ function system() {
 settingsRoutes.get("/", (c) => c.json({ settings: getSettings(), system: system() }));
 
 settingsRoutes.patch("/", async (c) => {
-  const body = await parseBody(c, appSettingsSchema.partial());
+  const body = await parseBody(c, patchSchema(appSettingsSchema));
   if (body instanceof Response) return body;
   return c.json({ settings: updateSettings(body), system: system() });
 });

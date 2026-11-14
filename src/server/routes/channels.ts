@@ -9,7 +9,7 @@ import { buildMessage } from "../notify/dispatcher";
 import { providers } from "../notify/providers";
 import { EVENT_TYPES } from "../../shared/events";
 import { CHANNEL_TYPE_IDS, type ChannelType } from "../../shared/channels";
-import { errorMessage, parseBody } from "./util";
+import { errorMessage, parseBody, patchSchema } from "./util";
 
 export const channelRoutes = new Hono();
 
@@ -57,7 +57,7 @@ channelRoutes.post("/", async (c) => {
 });
 
 channelRoutes.patch("/:id", async (c) => {
-  const body = await parseBody(c, baseSchema.partial());
+  const body = await parseBody(c, patchSchema(baseSchema));
   if (body instanceof Response) return body;
   const existing = db.select().from(channels).where(eq(channels.id, c.req.param("id"))).get();
   if (!existing || !isChannelType(existing.type)) return c.json({ error: "not found" }, 404);

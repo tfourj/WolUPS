@@ -6,7 +6,7 @@ import { outages, ups, upsSamples } from "../db/schema";
 import { fetchUpsSnapshot, fetchUpsVars, listUps } from "../nut/client";
 import { nutTarget, upsMonitor } from "../monitor/ups-monitor";
 import { box } from "../secrets";
-import { errorMessage, parseBody } from "./util";
+import { errorMessage, parseBody, patchSchema } from "./util";
 
 export const upsRoutes = new Hono();
 
@@ -57,7 +57,7 @@ upsRoutes.post("/", async (c) => {
 });
 
 upsRoutes.patch("/:id", async (c) => {
-  const body = await parseBody(c, upsSchema.partial());
+  const body = await parseBody(c, patchSchema(upsSchema));
   if (body instanceof Response) return body;
   const existing = db.select().from(ups).where(eq(ups.id, c.req.param("id"))).get();
   if (!existing) return c.json({ error: "not found" }, 404);
