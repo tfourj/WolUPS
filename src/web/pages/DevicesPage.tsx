@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   MoreHorizontal,
@@ -36,6 +36,10 @@ import { useAction } from "@/lib/mutations";
 import type { Device } from "@/lib/types";
 import { DeviceDialog } from "./DeviceDialog";
 import { InstallAgentDialog } from "./InstallAgentDialog";
+
+type UpdateCheck =
+  | { ok: true; status: "current" | "updating"; version: string | null; latestVersion: string }
+  | { ok: false; error: string };
 
 type Ack = { ok: boolean; error?: string; latencyMs?: number; via?: string[]; errors?: string[] };
 
@@ -100,10 +104,26 @@ export function DevicesPage() {
   const ping = useAction((d: Device) => api.post<Ack>(`/devices/${d.id}/agent/ping`), {
     success: (r) => (r.ok ? `Agent responded in ${r.latencyMs} ms` : null),
   });
-  const update = useAction((d: Device) => api.post<Ack>(`/devices/${d.id}/agent/update`), {
-    invalidate,
-    success: "Update requested",
-  });
+  const queryClient = useQueryClient();
+  const checkForUpdate = (d: Device) => {
+    const request = api
+      .post<UpdateCheck>(`/devices/${d.id}/agent/update`)
+      .then((r) => {
+        if (!r.ok) throw new Error(r.error);
+        return r;
+      })
+      .finally(() => {
+        for (const key of invalidate) queryClient.invalidateQueries({ queryKey: key });
+      });
+    toast.promise(request, {
+      loading: `Checking ${d.name} for an update...`,
+      success: (r) =>
+        r.status === "current"
+          ? `${d.name} is up to date (v${r.version ?? r.latestVersion})`
+          : `${d.name} is updating to v${r.latestVersion} and will reconnect shortly`,
+      error: (e) => `Update check failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  };
   const autoUpdate = useAction(
     (d: Device) => api.patch(`/devices/${d.id}/agent`, { autoUpdate: !d.agent?.autoUpdate }),
     { invalidate },
@@ -239,7 +259,7 @@ export function DevicesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               disabled={!d.agent.connected}
-                              onClick={() => update.mutateAsync(d).then(report)}
+                              onClick={() => checkForUpdate(d)}
                             >
                               <RefreshCw />
                               Check for update
