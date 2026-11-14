@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { templateVars } from "../src/server/notify/templates";
 import { EVENT_TYPES, TEMPLATE_VARIABLES } from "../src/shared/events";
+import { matchTemplatePreset, TEMPLATE_PRESETS } from "../src/shared/template-presets";
 import { previewTemplate, renderTemplate, resolveTemplate, sampleTemplateVars } from "../src/shared/templates";
 
 describe("templates", () => {
@@ -44,5 +45,37 @@ describe("template previews", () => {
   test("renders a template with the sample event", () => {
     const preview = previewTemplate("ups_on_battery", { title: "{title}", body: "{ups} at {battery} {nope}" }, now);
     expect(preview).toEqual({ title: "Rack UPS is on battery", body: "Rack UPS at 98% {nope}" });
+  });
+});
+
+describe("template presets", () => {
+  const variable = new RegExp(`\\{(?!(?:${TEMPLATE_VARIABLES.join("|")})\\})[a-z_]+\\}`, "i");
+
+  test("every preset covers each event type with known variables", () => {
+    for (const preset of TEMPLATE_PRESETS) {
+      expect(Object.keys(preset.templates).sort()).toEqual([...EVENT_TYPES].sort());
+      for (const template of Object.values(preset.templates)) {
+        expect(template.title).not.toBe("");
+        expect(template.body).not.toBe("");
+        expect(`${template.title} ${template.body}`).not.toMatch(variable);
+      }
+    }
+  });
+
+  test("preset ids are unique and each preset matches only itself", () => {
+    expect(new Set(TEMPLATE_PRESETS.map((p) => p.id)).size).toBe(TEMPLATE_PRESETS.length);
+    for (const preset of TEMPLATE_PRESETS) expect(matchTemplatePreset(preset.templates)?.id).toBe(preset.id);
+  });
+
+  test("no saved templates match the default preset and edits match none", () => {
+    expect(matchTemplatePreset({})?.id).toBe("default");
+    expect(matchTemplatePreset({ login: { title: "Sign-in", body: "{message}" } })).toBeUndefined();
+  });
+
+  test("icon presets prefix the title and detailed presets list event values", () => {
+    const now = new Date("2026-01-01T12:00:00Z");
+    const preset = (id: string) => TEMPLATE_PRESETS.find((p) => p.id === id)!.templates.ups_on_battery;
+    expect(previewTemplate("ups_on_battery", preset("icon-default"), now).title).toBe("🔋 Rack UPS is on battery");
+    expect(previewTemplate("ups_on_battery", preset("detailed"), now).body).toContain("Battery: 98%\nRuntime: 42m 0s");
   });
 });
