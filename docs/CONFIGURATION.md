@@ -35,7 +35,8 @@ On Proxmox you are already root. Elsewhere use `| sudo sh -s -- ...`. The token 
 minutes.
 
 The agent only accepts signed commands from your WolUPS server: shut down, send a wake packet, update, unpair and
-ping. Turn on **Automatic updates** in the device menu to install new agent releases as they come out.
+ping. WolUPS checks for a new agent release every 15 minutes (**Settings → General**). Turn on
+**Automatic updates** in the device menu to install it automatically; offline agents update when they reconnect.
 
 ```bash
 wolups-agent status              # pairing and version
