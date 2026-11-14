@@ -5,6 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Radar,
   Power,
   RefreshCw,
   Server,
@@ -36,6 +37,7 @@ import { useAction } from "@/lib/mutations";
 import type { Device } from "@/lib/types";
 import { DeviceDialog } from "./DeviceDialog";
 import { InstallAgentDialog } from "./InstallAgentDialog";
+import { WakeCheckDialog } from "./WakeCheckDialog";
 
 type UpdateCheck =
   | { ok: true; status: "current" | "updating"; version: string | null; latestVersion: string }
@@ -91,6 +93,7 @@ export function DevicesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Device | undefined>();
   const [installFor, setInstallFor] = useState<Device | null>(null);
+  const [wakeCheckFor, setWakeCheckFor] = useState<Device | null>(null);
 
   const invalidate = [["devices"], ["overview"]];
   const wake = useAction((d: Device) => api.post<Ack>(`/devices/${d.id}/wake`), {
@@ -233,6 +236,10 @@ export function DevicesPage() {
                           <Sunrise />
                           Wake now
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setWakeCheckFor(d)}>
+                          <Radar />
+                          Check Wake-on-LAN
+                        </DropdownMenuItem>
                         {d.agent && (
                           <>
                             <ConfirmAction
@@ -318,6 +325,7 @@ export function DevicesPage() {
 
       <DeviceDialog open={dialogOpen} onOpenChange={setDialogOpen} device={editing} />
       <InstallAgentDialog device={installFor} onClose={() => setInstallFor(null)} />
+      <WakeCheckDialog device={wakeCheckFor} onClose={() => setWakeCheckFor(null)} />
     </>
   );
 }
