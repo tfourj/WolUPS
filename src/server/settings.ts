@@ -17,7 +17,7 @@ export const appSettingsSchema = z.object({
     .default({ restoreDelaySec: 30, minBatteryPercent: 25, clientTimeoutSec: 600, reattemptDelaySec: 30 }),
   wolMode: z.enum(["auto", "server", "agent"]).default("auto"),
   wolBroadcast: z.string().default("255.255.255.255"),
-  agentUpdateCheckHours: z.number().int().min(1).max(168).default(6),
+  agentUpdateCheckMinutes: z.number().int().min(5).max(1440).default(15),
   eventRetentionDays: z.number().int().min(1).max(3650).default(90),
   sampleRetentionDays: z.number().int().min(1).max(365).default(30),
   templates: z.record(z.string(), z.object({ title: z.string(), body: z.string() })).default({}),

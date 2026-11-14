@@ -84,11 +84,11 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
             onChange={(v) => setS({ ...s, devicePingIntervalSec: v })}
           />
           <NumberField
-            label="Agent update check (hours)"
-            value={s.agentUpdateCheckHours}
-            min={1}
-            max={168}
-            onChange={(v) => setS({ ...s, agentUpdateCheckHours: v })}
+            label="Agent update check (minutes)"
+            value={s.agentUpdateCheckMinutes}
+            min={5}
+            max={1440}
+            onChange={(v) => setS({ ...s, agentUpdateCheckMinutes: v })}
           />
           <NumberField
             label="Keep events (days)"

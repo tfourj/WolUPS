@@ -7,10 +7,13 @@ import { createLogger } from "../logger";
 import { getSettings } from "../settings";
 import { isNewerVersion, parseVersion } from "../../shared/version";
 import { agentHub } from "./hub";
+import { PROTOCOL_VERSION } from "./protocol";
 
 const log = createLogger("releases");
 
 const UPDATE_TTL_MS = 10 * 60 * 1000;
+/** After a failed automatic update, wait this long before trying the same release again. */
+const FAILED_RETRY_MS = 6 * 60 * 60 * 1000;
 
 export type LatestRelease = { version: string; url: string; checkedAt: number } | null;
 
@@ -22,23 +25,75 @@ export function latestAgentRelease() {
   return { latest, error: lastError };
 }
 
+/**
+ * Read the latest release's agent-release.json. This is a release asset download, not a GitHub
+ * API call, so it does not count against the API rate limit shared by everything on this IP.
+ */
 export async function fetchLatestRelease(): Promise<LatestRelease> {
-  const res = await fetch(`https://api.github.com/repos/${env.agentRepo}/releases/latest`, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "wolups" },
+  const res = await fetch(`https://github.com/${env.agentRepo}/releases/latest/download/agent-release.json`, {
+    headers: { "User-Agent": "wolups" },
     signal: AbortSignal.timeout(15_000),
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub returned ${res.status}`);
-  const body = (await res.json()) as { tag_name?: string; html_url?: string };
-  const version = body.tag_name?.replace(/^v/, "") ?? "";
-  if (!parseVersion(version)) throw new Error(`release tag ${body.tag_name} is not a stable x.y.z version`);
-  return { version, url: body.html_url ?? "", checkedAt: Date.now() };
+  const body = (await res.json()) as { version?: string; protocol_version?: number };
+  const version = body.version ?? "";
+  if (!parseVersion(version)) {
+    throw new Error(`release version ${version || "(missing)"} is not a stable x.y.z version`);
+  }
+  if (body.protocol_version !== PROTOCOL_VERSION) {
+    throw new Error(
+      `release v${version} uses agent protocol ${body.protocol_version}, this server needs ${PROTOCOL_VERSION}`,
+    );
+  }
+  const url = `https://github.com/${env.agentRepo}/releases/tag/v${version}`;
+  return { version, url, checkedAt: Date.now() };
 }
 
 /** Ask an agent to run its fixed self-update. The command carries no URL or path. */
 export function requestAgentUpdate(agentId: string) {
-  db.update(agents).set({ updateStatus: "updating", lastUpdateError: null }).where(eq(agents.id, agentId)).run();
+  db.update(agents)
+    .set({ updateStatus: "updating", lastUpdateError: null, updateCheckedAt: new Date() })
+    .where(eq(agents.id, agentId))
+    .run();
   return agentHub.send(agentId, "update", {}, { ttlMs: UPDATE_TTL_MS });
+}
+
+type AgentRow = typeof agents.$inferSelect;
+
+/**
+ * Whether an automatic update should wait. An update that never got an answer (agent went offline)
+ * stops blocking once it expires, and a failed one is retried after a few hours, not on every check.
+ */
+function autoUpdateBlocked(agent: AgentRow, now = Date.now()) {
+  const age = agent.updateCheckedAt ? now - agent.updateCheckedAt.getTime() : Infinity;
+  if (agent.updateStatus === "updating" || agent.updateStatus === "restarting") return age < UPDATE_TTL_MS;
+  if (agent.updateStatus === "failed") return age < FAILED_RETRY_MS;
+  return false;
+}
+
+/** Record a newer release for this agent and start an update when automatic updates are on. */
+function handleAgentRelease(agent: AgentRow, release: NonNullable<LatestRelease>) {
+  if (!isNewerVersion(release.version, agent.version)) return;
+  const device = db.select().from(devices).where(eq(devices.id, agent.deviceId)).get();
+  const name = device?.name ?? agent.hostname ?? "agent";
+  if (agent.latestVersion !== release.version) {
+    db.update(agents)
+      .set({ latestVersion: release.version, updateCheckedAt: new Date() })
+      .where(eq(agents.id, agent.id))
+      .run();
+    emitEvent({
+      type: "agent_update_available",
+      deviceId: agent.deviceId,
+      title: `Agent update available for ${name}`,
+      message: `Agent v${release.version} is available for ${name} (running v${agent.version})`,
+      data: { device: name, version: release.version, currentVersion: agent.version },
+    });
+  }
+  if (agent.autoUpdate && agentHub.isConnected(agent.id) && !autoUpdateBlocked(agent)) {
+    log.info("starting automatic agent update", { agentId: agent.id, to: release.version });
+    requestAgentUpdate(agent.id);
+  }
 }
 
 export async function checkForAgentUpdates() {
@@ -51,26 +106,15 @@ export async function checkForAgentUpdates() {
     return;
   }
   if (!latest) return;
-  const rows = db.select().from(agents).all();
-  for (const agent of rows) {
-    if (!isNewerVersion(latest.version, agent.version)) continue;
-    const device = db.select().from(devices).where(eq(devices.id, agent.deviceId)).get();
-    if (agent.latestVersion !== latest.version) {
-      db.update(agents).set({ latestVersion: latest.version, updateCheckedAt: new Date() }).where(eq(agents.id, agent.id)).run();
-      emitEvent({
-        type: "agent_update_available",
-        deviceId: agent.deviceId,
-        title: `Agent update available for ${device?.name ?? agent.hostname}`,
-        message: `Agent v${latest.version} is available for ${device?.name ?? agent.hostname} (running v${agent.version})`,
-        data: { device: device?.name, version: latest.version, currentVersion: agent.version },
-      });
-    }
-    if (agent.autoUpdate && agentHub.isConnected(agent.id) && agent.updateStatus !== "updating") {
-      log.info("starting automatic agent update", { agentId: agent.id, to: latest.version });
-      requestAgentUpdate(agent.id);
-    }
-  }
+  for (const agent of db.select().from(agents).all()) handleAgentRelease(agent, latest);
 }
+
+// An agent that was offline during the last check updates as soon as it reconnects.
+agentHub.onConnect((agentId) => {
+  if (!latest) return;
+  const agent = db.select().from(agents).where(eq(agents.id, agentId)).get();
+  if (agent) handleAgentRelease(agent, latest);
+});
 
 agentHub.onAck((command, ack) => {
   if (command.type !== "update") return;
@@ -106,7 +150,7 @@ export function startReleaseChecks() {
   const schedule = (delay: number) => {
     timer = setTimeout(async () => {
       await checkForAgentUpdates();
-      schedule(getSettings().agentUpdateCheckHours * 3600_000);
+      schedule(getSettings().agentUpdateCheckMinutes * 60_000);
     }, delay);
   };
   if (!timer) schedule(30_000);

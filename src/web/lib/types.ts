@@ -148,7 +148,7 @@ export type AppSettings = {
   wake: { restoreDelaySec: number; minBatteryPercent: number; clientTimeoutSec: number; reattemptDelaySec: number };
   wolMode: "auto" | "server" | "agent";
   wolBroadcast: string;
-  agentUpdateCheckHours: number;
+  agentUpdateCheckMinutes: number;
   eventRetentionDays: number;
   sampleRetentionDays: number;
   templates: Record<string, { title: string; body: string }>;
