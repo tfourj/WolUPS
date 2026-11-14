@@ -286,6 +286,11 @@ func (a *agent) handleCommand(ctx context.Context, payload, sig string) {
 			return
 		}
 		sent, err := a.actions.wake(args.MAC, args.Broadcast, args.Port)
+		if err != nil {
+			log.Printf("wake packet for %s failed: %v", args.MAC, err)
+		} else {
+			log.Printf("sent wake packet for %s to %d target(s)", args.MAC, sent)
+		}
 		a.ack(ctx, cmd.ID, err, map[string]any{"targets": sent})
 	case "update":
 		log.Print("update requested")
