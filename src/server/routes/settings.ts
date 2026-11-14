@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { latestAgentRelease, checkForAgentUpdates } from "../agents/releases";
 import { env } from "../env";
+import { checkWakeDelivery } from "../wol/check";
 import { appSettingsSchema, getSettings, updateSettings } from "../settings";
 import { parseBody, patchSchema } from "./util";
 
@@ -25,6 +26,8 @@ settingsRoutes.patch("/", async (c) => {
   if (body instanceof Response) return body;
   return c.json({ settings: updateSettings(body), system: system() });
 });
+
+settingsRoutes.post("/wake-check", async (c) => c.json(await checkWakeDelivery()));
 
 settingsRoutes.post("/check-agent-release", async (c) => {
   await checkForAgentUpdates();
