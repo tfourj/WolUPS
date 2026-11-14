@@ -38,7 +38,8 @@ minutes.
 The agent only accepts signed commands from your WolUPS server: shut down, send a wake packet, update, unpair and
 ping. WolUPS checks for a new agent release every 15 minutes (**Settings → General**). New agents
 install it automatically (turn off **Automatic updates** in the device menu to opt out); offline agents update
-when they reconnect. **Check for update** updates right away and tells you if the agent is already current.
+when they reconnect. **Check for update** updates right away and tells you if the agent is already current. Updates
+also refresh the agent's systemd service file, so reinstalling is never needed.
 
 ```bash
 wolups-agent status              # pairing and version
