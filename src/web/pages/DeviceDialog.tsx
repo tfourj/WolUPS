@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Loader2, ScanSearch } from "lucide-react";
+import { toast } from "sonner";
 import { Field, SwitchRow } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useAction } from "@/lib/mutations";
 import type { Device, Ups } from "@/lib/types";
@@ -54,7 +57,30 @@ export function DeviceDialog({
     if (open) setForm(toForm(device));
   }, [open, device]);
 
-  const set = (key: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: e.target.value });
+  const [lookingUp, setLookingUp] = useState(false);
+
+  async function getMac() {
+    setLookingUp(true);
+    try {
+      const res = await api.post<{ ok: boolean; mac?: string; via?: string; error?: string }>("/devices/resolve-mac", {
+        host: form.host.trim(),
+        deviceId: device?.id,
+      });
+      if (res.ok && res.mac) {
+        setForm((f) => ({ ...f, mac: res.mac! }));
+        toast.success(`Found ${res.mac} via ${res.via}`);
+      } else {
+        toast.error(res.error ?? "No MAC found");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLookingUp(false);
+    }
+  }
+
+  const set = (key: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [key]: e.target.value });
 
   const save = useAction(
     () => {
@@ -97,7 +123,24 @@ export function DeviceDialog({
               <Input id="dev-host" value={form.host} onChange={set("host")} placeholder="192.168.1.20" />
             </Field>
             <Field label="MAC address" htmlFor="dev-mac" help="Needed for Wake-on-LAN">
-              <Input id="dev-mac" value={form.mac} onChange={set("mac")} placeholder="aa:bb:cc:dd:ee:ff" />
+              <div className="flex gap-2">
+                <Input id="dev-mac" value={form.mac} onChange={set("mac")} placeholder="aa:bb:cc:dd:ee:ff" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Get MAC from IP"
+                      disabled={!form.host.trim() || lookingUp}
+                      onClick={getMac}
+                    >
+                      {lookingUp ? <Loader2 className="animate-spin" /> : <ScanSearch />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Get MAC from IP</TooltipContent>
+                </Tooltip>
+              </div>
             </Field>
           </div>
           <Field label="Powered by UPS">
