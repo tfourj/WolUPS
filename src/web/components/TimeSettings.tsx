@@ -74,8 +74,8 @@ export function TimeSettings({
             </SelectContent>
           </Select>
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Clock" htmlFor="time-format">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          <Field label="Clock" htmlFor="time-format" className="min-w-0">
             <Select value={time.timeFormat} onValueChange={(v) => update({ timeFormat: v as TimeFormat })}>
               <SelectTrigger id="time-format" className="w-full">
                 <SelectValue />
@@ -89,7 +89,7 @@ export function TimeSettings({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Recent times" htmlFor="time-style">
+          <Field label="Recent times" htmlFor="time-style" className="min-w-0">
             <Select value={time.timeStyle} onValueChange={(v) => update({ timeStyle: v as TimeStyle })}>
               <SelectTrigger id="time-style" className="w-full">
                 <SelectValue />
