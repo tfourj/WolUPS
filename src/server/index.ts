@@ -4,6 +4,7 @@ import { env } from "./env";
 import { createLogger } from "./logger";
 import { auth, hasAccount } from "./auth/auth";
 import { withClientIp } from "./client-ip";
+import { upsMonitor } from "./monitor/ups-monitor";
 
 const log = createLogger("server");
 
@@ -17,3 +18,5 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(withClientIp(c)));
 
 const server = Bun.serve({ port: env.port, hostname: "0.0.0.0", fetch: app.fetch });
 log.info("listening", { port: server.port, baseUrl: env.baseUrl });
+
+upsMonitor.start();
