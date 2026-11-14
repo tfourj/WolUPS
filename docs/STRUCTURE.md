@@ -40,5 +40,5 @@ WolUPS/
 ├── tests/                           bun test suites
 ├── scripts/                         README screenshot generator with demo data
 ├── docs/                            Configuration, build guide, screenshots and logo
-└── .github/workflows/               CI, Docker image, agent release
+└── .github/workflows/               build (checks and Docker image), agent release
 ```
