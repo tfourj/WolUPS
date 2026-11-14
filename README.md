@@ -24,6 +24,7 @@
 - Wake-on-LAN after power returns, sent by the server or relayed through an agent
 - Notifications for power loss, shutdowns, wakes and agent updates
 - Custom message templates
+- Two-factor authentication and optional notifications for new sign-ins
 - Dashboard with live status, battery history and event log
 - Dark and light mode
 

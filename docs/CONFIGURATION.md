@@ -73,6 +73,16 @@ Templates are set in **Settings → Templates** and can be overridden per channe
 
 Failed deliveries are retried up to 6 times. Each attempt is shown in **Events**, where you can also retry by hand.
 
+## Account security
+
+**Settings → Security** has two options:
+
+- **Two-factor authentication:** scan the QR code with an authenticator app and enter a code to turn it on. Save the
+  10 backup codes it shows; each works once. Sign-ins then ask for a code, and **Trust this device** skips it for 30
+  days.
+- **Login notifications:** pick the channels that get a message for every sign-in, with the method, device and IP
+  address. This is the **New sign-in** event in each channel's event list. **Send test** sends a sample.
+
 ## Reverse proxy, Coolify and Cloudflare
 
 - Set `BASE_URL` to the public HTTPS URL.
@@ -84,4 +94,10 @@ Failed deliveries are retried up to 6 times. Each attempt is shown in **Events**
 
 ```bash
 docker exec -it wolups bun src/server/cli.ts reset-password 'new-password'
+```
+
+If you lose your authenticator app and backup codes, turn off two-factor authentication:
+
+```bash
+docker exec -it wolups bun src/server/cli.ts disable-2fa
 ```
