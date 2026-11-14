@@ -1,0 +1,19 @@
+services:
+  wolups:
+    image: ghcr.io/tfourj/wolups:latest
+    container_name: wolups
+    restart: unless-stopped
+    ports:
+      - "4321:4321"
+    # Use host networking instead of ports if the server should send
+    # Wake-on-LAN broadcasts itself (otherwise a relay agent sends them).
+    # network_mode: host
+    volumes:
+      - ./data:/data
+    environment:
+      - BASE_URL=https://wolups.example.com
+      - TZ=UTC
+      # Generated into /data/secrets.json on first start when not set.
+      # - BETTER_AUTH_SECRET=
+      # - ENCRYPTION_SECRET=
+      # - PORT=4321
