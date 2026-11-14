@@ -54,6 +54,13 @@ Wake packets only reach your LAN from the container with `network_mode: host`. W
 same network sends them. Choose server, agent or both in **Settings → Wake**. MAC lookup uses the same
 route: the server's ARP table on host networking, otherwise an agent on the same subnet.
 
+**Check Wake-on-LAN** in the device menu shows whether the server or an agent can reach the device and sends a
+harmless test packet (MAC `00:00:00:00:00:00`) from each.
+
+Devices are woken once power is back for the delay in **Settings → Wake** and the UPS battery is above its minimum.
+Each device can override both, for example to wake a desktop only above 80%. If a device stays offline for the
+timeout after its first wake packet, or the conditions are not met within 24 hours, WolUPS stops and notifies you.
+
 ## Notifications
 
 Templates are set in **Settings → Templates** and can be overridden per channel. Variables:
