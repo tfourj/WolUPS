@@ -262,3 +262,25 @@ func TestLookupMACRejectsInvalidAndRemote(t *testing.T) {
 		t.Fatal("address outside local subnets accepted")
 	}
 }
+
+func TestRepeatLogThrottles(t *testing.T) {
+	now := time.Unix(0, 0)
+	r := newRepeatLog(time.Hour)
+	r.now = func() time.Time { return now }
+	if !r.Print("down") {
+		t.Fatal("first message not logged")
+	}
+	for i := 0; i < 100; i++ {
+		now = now.Add(time.Minute / 2)
+		if r.Print("down") {
+			t.Fatalf("repeat %d logged inside the interval", i)
+		}
+	}
+	now = now.Add(time.Hour)
+	if !r.Print("down") {
+		t.Fatal("summary not logged after the interval")
+	}
+	if !r.Print("other error") {
+		t.Fatal("new message not logged")
+	}
+}

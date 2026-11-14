@@ -103,6 +103,7 @@ func websocketURL(serverURL string) (string, error) {
 // run keeps a connection open, reconnecting with jittered backoff.
 func (a *agent) run(ctx context.Context) {
 	backoff := time.Second
+	errorsLog := newRepeatLog(time.Hour)
 	for ctx.Err() == nil {
 		started := time.Now()
 		err := a.session(ctx)
@@ -112,13 +113,15 @@ func (a *agent) run(ctx context.Context) {
 		wait := backoff
 		var closeErr websocket.CloseError
 		if errors.As(err, &closeErr) && (closeErr.Code == 4404 || closeErr.Code == 4401) {
-			log.Printf("server rejected this agent (%s). Pair it again from the WolUPS UI.", closeErr.Reason)
+			errorsLog.Print(fmt.Sprintf("server rejected this agent (%s). Pair it again from the WolUPS UI.", closeErr.Reason))
 			wait = 5 * time.Minute
 		} else {
-			log.Printf("connection lost: %v", err)
+			errorsLog.Print(fmt.Sprintf("connection lost: %v", err))
 		}
 		if time.Since(started) > time.Minute {
+			// The session was up for a while, so this is a new problem worth logging.
 			backoff = time.Second
+			errorsLog.Reset()
 		} else if backoff < time.Minute {
 			backoff *= 2
 		}
@@ -145,7 +148,12 @@ func (a *agent) session(ctx context.Context) error {
 		return err
 	}
 	conn.SetReadLimit(256 * 1024)
-	defer conn.CloseNow()
+	defer func() {
+		a.writeMu.Lock()
+		a.conn = nil
+		a.writeMu.Unlock()
+		conn.CloseNow()
+	}()
 	a.writeMu.Lock()
 	a.conn = conn
 	a.writeMu.Unlock()

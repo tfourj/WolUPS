@@ -147,6 +147,11 @@ ProtectHome=yes
 ProtectSystem=strict
 ReadWritePaths=$STATE_DIR /usr/local/bin
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Hard limits, so a bug can never fill the disk with logs or eat the host's memory
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=100
+MemoryHigh=64M
+MemoryMax=128M
 
 [Install]
 WantedBy=multi-user.target
