@@ -4,16 +4,18 @@ services:
     container_name: wolups
     restart: unless-stopped
     ports:
-      - "4321:4321"
-    # Use host networking instead of ports if the server should send
-    # Wake-on-LAN broadcasts itself (otherwise a relay agent sends them).
+      - "${PORT:-4321}:${PORT:-4321}"
+    # Use host networking instead of ports if the server should send Wake-on-LAN itself
     # network_mode: host
-    volumes:
-      - ./data:/data
     environment:
-      - BASE_URL=https://wolups.example.com
-      - TZ=UTC
-      # Generated into /data/secrets.json on first start when not set.
-      # - BETTER_AUTH_SECRET=
-      # - ENCRYPTION_SECRET=
-      # - PORT=4321
+      PORT: ${PORT:-4321}
+      BASE_URL: ${BASE_URL:-http://localhost:4321}
+      # Leave empty to auto-generate into /data/secrets.json on first run
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - wolups-data:/data
+
+volumes:
+  wolups-data:
