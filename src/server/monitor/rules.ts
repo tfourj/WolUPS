@@ -50,6 +50,8 @@ export type WakeInput = {
   lastSeenAt: number | null;
   /** The device accepted a shutdown during this outage, so it is presumed off. */
   shutdownAcked: boolean;
+  /** The device accepted a shutdown and is still reachable while it stops services. */
+  shuttingDown: boolean;
   wasOnline: boolean;
   wakeAttempts: number;
   firstWakeAt: number | null;
@@ -74,6 +76,8 @@ export function planWake(input: WakeInput, s: WakeSettings): WakeAction {
   const { device } = input;
   if (!device.enabled || !device.wakeEnabled || !device.mac) return "skip";
   if (!input.wasOnline && !device.alwaysWake) return "skip";
+  // Still stopping services after the shutdown (power may already be back): wait until it is really off.
+  if (input.shuttingDown) return "wait";
   // A device that accepted a shutdown only counts as online once it is seen again after the restore.
   const online = device.online && (!input.shutdownAcked || (input.lastSeenAt ?? 0) > input.restoredAt);
   if (online) return input.wakeAttempts > 0 || input.shutdownAcked ? "recovered" : "already_online";

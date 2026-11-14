@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { shutdownState } from "../src/server/monitor/presence";
 import { planWake, shouldShutdown, type WakeInput } from "../src/server/monitor/rules";
 
 const device = { enabled: true, shutdownEnabled: true, shutdownBatteryPercent: 30, shutdownRuntimeSec: null };
@@ -44,6 +45,7 @@ describe("planWake", () => {
     },
     lastSeenAt: null,
     shutdownAcked: true,
+    shuttingDown: false,
     wasOnline: true,
     wakeAttempts: 0,
     firstWakeAt: null,
@@ -82,6 +84,14 @@ describe("planWake", () => {
     expect(planWake({ ...picky, now: 130_000, upsBattery: 80 }, settings)).toBe("send");
   });
 
+  test("waits while the device is still shutting down, even if it looks online after the restore", () => {
+    const stopping = { ...base, shuttingDown: true, device: { ...base.device, online: true }, lastSeenAt: 95_000 };
+    expect(planWake(stopping, settings)).toBe("wait");
+    expect(planWake({ ...stopping, shuttingDown: false, device: { ...base.device, online: false } }, settings)).toBe(
+      "send",
+    );
+  });
+
   test("stops waiting after 24 hours when conditions are never met", () => {
     const picky = { ...base, device: { ...base.device, wakeMinBatteryPercent: 90 }, upsBattery: 60 };
     expect(planWake({ ...picky, now: 23 * 3_600_000 }, settings)).toBe("wait");
@@ -93,5 +103,15 @@ describe("planWake", () => {
     expect(planWake(stale, settings)).toBe("send");
     expect(planWake({ ...stale, lastSeenAt: 95_000 }, settings)).toBe("recovered");
     expect(planWake({ ...stale, shutdownAcked: false }, settings)).toBe("already_online");
+  });
+});
+
+describe("shutdownState", () => {
+  test("lasts while the device is reachable and clears when it goes away or times out", () => {
+    const since = new Date(0);
+    expect(shutdownState(since, true, 60_000)).toBe(since);
+    expect(shutdownState(since, false, 60_000)).toBeNull();
+    expect(shutdownState(since, true, 31 * 60_000)).toBeNull();
+    expect(shutdownState(null, true, 60_000)).toBeNull();
   });
 });

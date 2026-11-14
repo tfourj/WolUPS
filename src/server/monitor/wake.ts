@@ -68,6 +68,7 @@ export async function processWakes(now = Date.now()) {
           device,
           lastSeenAt: device.lastSeenAt?.getTime() ?? null,
           shutdownAcked: od.shutdownAckedAt !== null,
+          shuttingDown: device.shuttingDownSince !== null,
           wasOnline: od.wasOnline,
           wakeAttempts: od.wakeAttempts,
           firstWakeAt: od.firstWakeAt?.getTime() ?? null,
