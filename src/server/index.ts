@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
+import { secureHeaders } from "hono/secure-headers";
 import { runMigrations } from "./db/client";
 import { env } from "./env";
 import { createLogger } from "./logger";
@@ -9,6 +10,8 @@ import { upsMonitor } from "./monitor/ups-monitor";
 import { agentHub } from "./agents/hub";
 import { startReleaseChecks } from "./agents/releases";
 import { agentPublicRoutes } from "./routes/agent-public";
+import { apiRoutes } from "./routes/api";
+import { serveWeb } from "./static";
 import { processShutdowns } from "./monitor/shutdown";
 import { scheduleWakes } from "./monitor/wake";
 import { startPresence } from "./monitor/presence";
@@ -22,10 +25,15 @@ startDispatcher();
 
 const app = new Hono();
 
+app.use("*", secureHeaders({ crossOriginEmbedderPolicy: false }));
+
 app.get("/api/health", (c) => c.json({ status: "ok", version: env.version }));
 app.get("/api/setup", (c) => c.json({ needsSetup: !hasAccount() }));
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(withClientIp(c)));
 app.route("/api/agents", agentPublicRoutes);
+app.route("/api", apiRoutes);
+app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
+app.get("*", serveWeb);
 
 const server = Bun.serve({
   port: env.port,
