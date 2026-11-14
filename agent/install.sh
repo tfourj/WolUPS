@@ -9,7 +9,6 @@ set -eu
 RELEASE_BASE="https://github.com/tfourj/WolUPS/releases/latest/download"
 SCRIPT_URL="https://raw.githubusercontent.com/tfourj/WolUPS/main/agent/install.sh"
 BIN_PATH="/usr/local/bin/wolups-agent"
-UNIT_PATH="/etc/systemd/system/wolups-agent.service"
 STATE_DIR="/var/lib/wolups-agent"
 
 SERVER=""
@@ -129,38 +128,9 @@ if [ -n "$TOKEN" ]; then
   fi
 fi
 
-cat >"$UNIT_PATH" <<UNIT
-[Unit]
-Description=WolUPS agent
-Documentation=https://github.com/tfourj/WolUPS
-After=network-online.target
-Wants=network-online.target
-# Stop after Proxmox has shut down its guests, so WolUPS still sees the host while VMs and LXCs stop.
-# Harmless on hosts without Proxmox.
-Before=pve-guests.service
+# The agent carries its own service file, so updates can refresh it later.
+"$BIN_PATH" install-unit >/dev/null || fail "could not write the systemd service file"
 
-[Service]
-Type=simple
-ExecStart=$BIN_PATH serve
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectHome=yes
-ProtectSystem=strict
-ReadWritePaths=$STATE_DIR /usr/local/bin
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-# Hard limits, so a bug can never fill the disk with logs or eat the host's memory
-LogRateLimitIntervalSec=60
-LogRateLimitBurst=100
-MemoryHigh=64M
-MemoryMax=128M
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
 systemctl enable wolups-agent >/dev/null 2>&1
 systemctl restart wolups-agent
 sleep 2
