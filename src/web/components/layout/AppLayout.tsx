@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import {
   Activity,
@@ -14,6 +15,7 @@ import {
   Sun,
   Zap,
 } from "lucide-react";
+import { GitHubIcon } from "@/components/GitHubIcon";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { useTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -73,6 +76,41 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
         </NavLink>
       ))}
     </nav>
+  );
+}
+
+const REPO_URL = "https://github.com/tfourj/WolUPS";
+
+type Health = { version: string; commit: string | null };
+
+function RepoLink() {
+  const { data } = useQuery({
+    queryKey: ["health"],
+    queryFn: () => api.get<Health>("/health"),
+    staleTime: Infinity,
+  });
+  const linkClass =
+    "rounded-md px-2 py-2 text-xs text-muted-foreground transition-colors " +
+    "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground";
+  const versionUrl = data?.commit ? `${REPO_URL}/commit/${data.commit}` : `${REPO_URL}/releases/tag/v${data?.version}`;
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <a href={REPO_URL} target="_blank" rel="noreferrer" className={cn(linkClass, "flex items-center gap-2 px-3")}>
+        <GitHubIcon className="size-4" />
+        tfourj/WolUPS
+      </a>
+      {data && (
+        <a
+          href={versionUrl}
+          target="_blank"
+          rel="noreferrer"
+          title={data.commit ? "View commit" : "View release"}
+          className={cn("font-mono tabular-nums", linkClass)}
+        >
+          {data.commit ?? `v${data.version}`}
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -129,6 +167,9 @@ export function AppLayout() {
         <div className="mt-6 flex-1">
           <NavItems />
         </div>
+        <div className="pb-2">
+          <RepoLink />
+        </div>
         <UserMenu />
       </aside>
 
@@ -140,6 +181,9 @@ export function AppLayout() {
           </div>
           <div className="mt-6 flex-1">
             <NavItems onNavigate={() => setOpen(false)} />
+          </div>
+          <div className="pb-2">
+            <RepoLink />
           </div>
           <UserMenu />
         </SheetContent>
