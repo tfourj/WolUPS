@@ -12,11 +12,13 @@ import { agentPublicRoutes } from "./routes/agent-public";
 import { processShutdowns } from "./monitor/shutdown";
 import { scheduleWakes } from "./monitor/wake";
 import { startPresence } from "./monitor/presence";
+import { startDispatcher } from "./notify/dispatcher";
 
 const log = createLogger("server");
 
 runMigrations();
 agentHub.reset();
+startDispatcher();
 
 const app = new Hono();
 
