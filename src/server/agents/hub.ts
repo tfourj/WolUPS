@@ -40,6 +40,7 @@ class AgentHub {
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private ackHooks: AckHook[] = [];
   private connectHooks: ((agentId: string) => void)[] = [];
+  private disconnectHooks: ((agentId: string, deviceId: string) => void)[] = [];
 
   /** Mark every agent offline on startup; live sessions reconnect on their own. */
   reset() {
@@ -52,6 +53,10 @@ class AgentHub {
 
   onConnect(hook: (agentId: string) => void) {
     this.connectHooks.push(hook);
+  }
+
+  onDisconnect(hook: (agentId: string, deviceId: string) => void) {
+    this.disconnectHooks.push(hook);
   }
 
   isConnected(agentId: string) {
@@ -206,8 +211,20 @@ class AgentHub {
     const agentId = conn.agentId;
     if (!agentId || this.sessions.get(agentId) !== conn) return;
     this.sessions.delete(agentId);
-    db.update(agents).set({ connected: false, lastSeenAt: new Date() }).where(eq(agents.id, agentId)).run();
+    const row = db
+      .update(agents)
+      .set({ connected: false, lastSeenAt: new Date() })
+      .where(eq(agents.id, agentId))
+      .returning({ deviceId: agents.deviceId })
+      .get();
     log.info("agent disconnected", { agentId });
+    for (const hook of this.disconnectHooks) {
+      try {
+        if (row) hook(agentId, row.deviceId);
+      } catch (error) {
+        log.error("disconnect hook failed", { error });
+      }
+    }
     const timer = setTimeout(() => {
       this.disconnectTimers.delete(agentId);
       if (this.sessions.has(agentId)) return;

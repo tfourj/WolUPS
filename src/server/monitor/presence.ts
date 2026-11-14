@@ -18,11 +18,12 @@ export function shutdownState(since: Date | null, online: boolean, now = Date.no
 }
 
 /** Device is online when its agent is connected, otherwise when its host answers ping. */
-export async function refreshPresence() {
+export async function refreshPresence(deviceId?: string) {
   const rows = db
     .select({ device: devices, agentId: agents.id })
     .from(devices)
     .leftJoin(agents, eq(agents.deviceId, devices.id))
+    .where(deviceId ? eq(devices.id, deviceId) : undefined)
     .all();
   await Promise.all(
     rows.map(async ({ device, agentId }) => {
@@ -50,6 +51,11 @@ export async function refreshPresence() {
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+
+// When an agent drops (often the machine powering off), update that device right away.
+agentHub.onDisconnect((_agentId, deviceId) => {
+  refreshPresence(deviceId).catch((error) => log.error("presence check failed", { error }));
+});
 
 export function startPresence() {
   const loop = async () => {
