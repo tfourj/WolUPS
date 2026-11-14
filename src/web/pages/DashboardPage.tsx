@@ -7,6 +7,7 @@ import { BatteryBar, EmptyState, StatCard, ToneBadge } from "@/components/common
 import { EventSummary } from "@/components/EventRow";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -155,30 +156,37 @@ export function DashboardPage() {
           <CardContent>{chartUps && <BatteryChart upsId={chartUps} range={range} />}</CardContent>
         </Card>
 
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle>Recent events</CardTitle>
-            <CardAction>
-              <Button variant="ghost" size="sm" asChild>
-                <Link to="/events">View all</Link>
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
+        {/* On wide screens the card is taken out of flow so the chart sets the row height. */}
+        <div className="relative xl:col-span-2">
+          <Card className="xl:absolute xl:inset-0">
+            <CardHeader>
+              <CardTitle>Recent events</CardTitle>
+              <CardAction>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/events">View all</Link>
+                </Button>
+              </CardAction>
+            </CardHeader>
             {data.recentEvents.length === 0 ? (
-              <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
-                <Activity className="size-4" />
-                No events yet
-              </div>
+              <CardContent>
+                <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
+                  <Activity className="size-4" />
+                  No events yet
+                </div>
+              </CardContent>
             ) : (
-              <div className="divide-y">
-                {data.recentEvents.map((e) => (
-                  <EventSummary key={e.id} event={e} />
-                ))}
-              </div>
+              <CardContent className="px-0 xl:min-h-0 xl:flex-1">
+                <ScrollArea type="auto" className="xl:h-full">
+                  <div className="divide-y px-6">
+                    {data.recentEvents.map((e) => (
+                      <EventSummary key={e.id} event={e} />
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
             )}
-          </CardContent>
-        </Card>
+          </Card>
+        </div>
       </div>
     </>
   );
