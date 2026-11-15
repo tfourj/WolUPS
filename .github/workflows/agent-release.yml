@@ -2,7 +2,7 @@ name: Agent release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["agent-v*"]
 
 permissions:
   contents: write
@@ -12,15 +12,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Tags and history for the release notes.
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
       - name: Check version tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME#agent-v}"
           if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Release tags must look like vX.Y.Z" >&2
+            echo "Agent release tags must look like agent-vX.Y.Z" >&2
             exit 1
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -44,7 +47,22 @@ jobs:
           for f in wolups-agent-linux-amd64 wolups-agent-linux-arm64 agent-release.json install.sh uninstall.sh; do
             sha256sum "$f" > "$f.sha256"
           done
-      - uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: dist/*
+      - name: Write release notes
+        run: |
+          # Agent changes since the previous agent release, or since the last combined release before the split.
+          prev="$(git tag --list 'agent-v[0-9]*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
+          [ -n "$prev" ] || prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD)"
+          {
+            echo "## Agent changes since $prev"
+            echo
+            git log --no-merges --format='- %s (%h)' "$prev..HEAD" -- agent
+          } > release-notes.md
+          cat release-notes.md
+      # Agent releases are the repository's latest release: installs and agent updates download from
+      # releases/latest/download, and the server checks it for new agent versions.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Agent v$VERSION" --notes-file release-notes.md --latest
