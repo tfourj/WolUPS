@@ -429,7 +429,7 @@ export function NutHostWizard({
           <StepBar step={step} />
         </DialogHeader>
 
-        <div className="grid min-w-0 gap-4">
+        <div className="-mx-1 grid max-h-[65vh] min-w-0 gap-4 overflow-y-auto px-1">
           {step === "install" && (
             <InstallStep
               hostId={hostId}
