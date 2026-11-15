@@ -52,10 +52,11 @@ jobs:
           # Agent changes since the previous agent release, or since the last combined release before the split.
           prev="$(git tag --list 'agent-v[0-9]*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
           [ -n "$prev" ] || prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD)"
+          changes="$(git log --no-merges --format='- %s (%h)' "$prev..HEAD" -- agent)"
           {
             echo "## Agent changes since $prev"
             echo
-            git log --no-merges --format='- %s (%h)' "$prev..HEAD" -- agent
+            echo "${changes:-No agent code changes.}"
           } > release-notes.md
           cat release-notes.md
       # Agent releases are the repository's latest release: installs and agent updates download from
