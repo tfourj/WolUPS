@@ -153,12 +153,12 @@ const SAMPLES: Record<EventType, Sample> = {
   },
   nut_service_failed: {
     title: "NUT driver stopped on pi",
-    message: "The usbhid-ups driver for Rack UPS stopped on pi",
-    vars: { ...AGENT_VARS, device: "pi", ups: "Rack UPS", version: "", error: "driver usbhid-ups stopped" },
+    message: "The NUT driver for Rack UPS has stopped on pi",
+    vars: { ...AGENT_VARS, device: "pi", ups: "Rack UPS", version: "", error: "driver for rack has stopped" },
   },
   nut_service_recovered: {
     title: "NUT driver running again on pi",
-    message: "The usbhid-ups driver for Rack UPS is running again on pi",
+    message: "The NUT driver for Rack UPS is running again on pi",
     vars: { ...AGENT_VARS, device: "pi", ups: "Rack UPS", version: "" },
   },
   login: {

@@ -21,7 +21,7 @@ describe("NUT health", () => {
   test("finds stopped drivers, a stopped upsd and a closed listen address", () => {
     expect(nutProblems(healthy, host)).toEqual([]);
     const driver = nutProblems({ ...healthy, drivers: [{ ups: "rack", state: "failed" }] }, host);
-    expect(driver).toMatchObject([{ key: "driver:rack", ups: "Rack UPS", error: "driver for rack is failed" }]);
+    expect(driver).toMatchObject([{ key: "driver:rack", ups: "Rack UPS", error: "driver for rack has failed" }]);
     expect(nutProblems({ ...healthy, upsd: "stopped" }, host).map((p) => p.key)).toEqual(["upsd"]);
     expect(nutProblems({ ...healthy, listening: false }, host).map((p) => p.key)).toEqual(["listen"]);
   });

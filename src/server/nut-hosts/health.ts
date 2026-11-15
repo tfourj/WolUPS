@@ -9,6 +9,11 @@ export type NutProblem = { key: string; ups: string | null; error: string; title
 
 type HostInfo = { name: string; localShutdown: boolean; upsNames: Map<string, string> };
 
+/** "has failed", "has stopped", or "is <state>" for anything else, such as stale. */
+function stateText(state: string): string {
+  return state === "failed" || state === "stopped" ? `has ${state}` : `is ${state}`;
+}
+
 /** Problems in a health report. Services that are not installed yet are not problems. */
 export function nutProblems(status: Omit<NutServices, "reportedAt">, host: HostInfo): NutProblem[] {
   const problems: NutProblem[] = [];
@@ -19,18 +24,18 @@ export function nutProblems(status: Omit<NutServices, "reportedAt">, host: HostI
     problems.push({
       key: `driver:${driver.ups}`,
       ups: display,
-      error: `driver for ${driver.ups} is ${driver.state}`,
+      error: `driver for ${driver.ups} ${stateText(driver.state)}`,
       title: `NUT driver stopped on ${host.name}`,
-      message: `The NUT driver for ${display} is ${driver.state} on ${host.name}`,
+      message: `The NUT driver for ${display} ${stateText(driver.state)} on ${host.name}`,
     });
   }
   if (down(status.upsd)) {
     problems.push({
       key: "upsd",
       ups: null,
-      error: `upsd is ${status.upsd}`,
+      error: `upsd ${stateText(status.upsd)}`,
       title: `upsd stopped on ${host.name}`,
-      message: `The NUT server (upsd) is ${status.upsd} on ${host.name}`,
+      message: `The NUT server (upsd) ${stateText(status.upsd)} on ${host.name}`,
     });
   } else if (status.upsd === "running" && !status.listening) {
     problems.push({
@@ -45,9 +50,9 @@ export function nutProblems(status: Omit<NutServices, "reportedAt">, host: HostI
     problems.push({
       key: "upsmon",
       ups: null,
-      error: `upsmon is ${status.upsmon}`,
+      error: `upsmon ${stateText(status.upsmon)}`,
       title: `upsmon stopped on ${host.name}`,
-      message: `upsmon is ${status.upsmon} on ${host.name}, so it will not shut this host down`,
+      message: `upsmon ${stateText(status.upsmon)} on ${host.name}, so it will not shut this host down`,
     });
   }
   return problems;
