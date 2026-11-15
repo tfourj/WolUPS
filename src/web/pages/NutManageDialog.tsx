@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Play, RotateCw, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Play, RotateCw, Trash2 } from "lucide-react";
 import { ToneBadge } from "@/components/common";
 import { ConfirmAction } from "@/components/confirm";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { useAction } from "@/lib/mutations";
-import type { NutHost, Ups, UpsControls, WritableVar } from "@/lib/types";
+import type { NutDetect, NutHost, Ups, UpsControls, WritableVar } from "@/lib/types";
+import { NutUpsEditDialog, type EditTarget } from "./NutUpsEditDialog";
 
 /** Instant commands that cut power or shut the UPS down, so they ask first. */
 const RISKY = /^(load\.|shutdown\.|beeper\.disable)/;
@@ -90,6 +92,22 @@ export function NutManageDialog({
   });
 
   const driver = host?.services?.drivers.find((d) => d.ups === ups?.upsName);
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const openEdit = async () => {
+    if (!host || !ups) return;
+    setLoadingEdit(true);
+    try {
+      const detect = await api.post<NutDetect>(`/nut-hosts/${host.id}/detect`);
+      const section = detect.managed.find((s) => s.name === ups.upsName);
+      if (section) setEditTarget({ section, displayName: ups.name, upsId: ups.id });
+      else toast.error("This UPS is kept as written in ups.conf. Migrate it in the setup wizard to edit it.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -107,10 +125,16 @@ export function NutManageDialog({
               {driver?.state ?? "unknown"}
             </ToneBadge>
           </div>
-          <Button size="sm" variant="outline" onClick={() => restart.mutate(undefined)} disabled={restart.isPending}>
-            <RotateCw className={restart.isPending ? "animate-spin" : ""} />
-            Restart NUT
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => void openEdit()} disabled={loadingEdit}>
+              {loadingEdit ? <Loader2 className="animate-spin" /> : <Pencil />}
+              Edit
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => restart.mutate(undefined)} disabled={restart.isPending}>
+              <RotateCw className={restart.isPending ? "animate-spin" : ""} />
+              Restart NUT
+            </Button>
+          </div>
         </div>
 
         {isPending && <Loader2 className="text-muted-foreground mx-auto size-6 animate-spin" />}
@@ -183,6 +207,7 @@ export function NutManageDialog({
             }
           />
         </DialogFooter>
+        <NutUpsEditDialog host={host} target={editTarget} onClose={() => setEditTarget(null)} />
       </DialogContent>
     </Dialog>
   );

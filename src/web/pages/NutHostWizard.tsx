@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Loader2, Pencil, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { CommandLog } from "@/components/CommandLog";
 import { Field, SwitchRow } from "@/components/common";
@@ -14,7 +14,9 @@ import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { CommandState, ConfSection, Enrollment, FileChange, NutDetect, NutHost, ScanDevice } from "@/lib/types";
+import { matchScanned, scanLabel } from "@/lib/nut-match";
 import { ChangePreview, ExistingConfig, hasExistingConfig, type ExistingChoice } from "./NutExistingConfig";
+import { NutUpsEditDialog, type EditTarget } from "./NutUpsEditDialog";
 
 export type WizardStep = "install" | "check" | "scan" | "configure" | "apply";
 
@@ -79,9 +81,20 @@ function uniqueName(base: string, taken: Set<string>): string {
   return name;
 }
 
-function deviceLabel(device: ScanDevice): string {
-  return [device.vendor, device.product].filter(Boolean).join(" ") || device.desc || device.driver;
+/** Driver, port and serial of a section, for lists. */
+function sectionSummary(section: ConfSection): string {
+  const serial = section.extra?.serial;
+  return [section.driver, section.port, serial && `serial ${serial}`].filter(Boolean).join(" · ");
 }
+
+/** A UPS already in ups.conf, shown in the scan step instead of being offered again. */
+type Configured = {
+  section: ConfSection;
+  displayName: string;
+  upsId: string | null;
+  managed: boolean;
+  found: boolean;
+};
 
 /** SNMP passwords from the form, added to SNMP devices on apply. The server never stores them. */
 function snmpSecrets(form: SnmpForm): Record<string, string> {
@@ -157,6 +170,8 @@ export function NutHostWizard({
   const [choice, setChoice] = useState<ExistingChoice>("migrate");
   const [preview, setPreview] = useState<{ changes: FileChange[]; adopt: { name: string }[] } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [found, setFound] = useState<string[]>([]);
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
 
   // Reset whenever the wizard opens.
   useEffect(() => {
@@ -182,6 +197,8 @@ export function NutHostWizard({
     setChoice("migrate");
     setPreview(null);
     setPreviewError(null);
+    setFound([]);
+    setEditTarget(null);
   }, [open, initialHost, startAt]);
 
   const { data: host } = useQuery({
@@ -322,7 +339,11 @@ export function NutHostWizard({
         setScanError(state.error ?? "scan failed");
         return;
       }
-      const devices = (state.result?.devices as ScanDevice[] | undefined) ?? [];
+      const all = (state.result?.devices as ScanDevice[] | undefined) ?? [];
+      // UPS already in ups.conf, recognised by serial, are shown as configured instead of offered again.
+      const matches = matchScanned(all, [...(detect?.managed ?? []), ...(detect?.existing ?? [])]);
+      setFound([...matches.values()]);
+      const devices = all.filter((_, i) => !matches.has(i));
       setPicks((current) => {
         const kept = current.filter((p) => p.imported);
         const taken = new Set([
@@ -334,7 +355,7 @@ export function NutHostWizard({
           key: `scan:${i}:${device.driver}:${device.port}:${device.serial ?? ""}`,
           checked: devices.length === 1,
           name: uniqueName(device.product || device.vendor || device.driver, taken),
-          displayName: deviceLabel(device),
+          displayName: scanLabel(device, devices),
           section: { name: "", driver: device.driver, port: device.port, desc: device.desc, extra: device.extra },
           imported: false,
         }));
@@ -346,6 +367,26 @@ export function NutHostWizard({
   );
 
   const selected = picks.filter((p) => p.checked);
+  const configured = useMemo<Configured[]>(() => {
+    if (!detect) return [];
+    const rows = host?.ups ?? [];
+    const imported = new Set(picks.filter((p) => p.imported).map((p) => p.name));
+    const entry = (section: ConfSection, managed: boolean): Configured => {
+      const row = rows.find((u) => u.upsName === section.name);
+      return {
+        section,
+        displayName: row?.name ?? (section.desc || section.name),
+        upsId: row?.id ?? null,
+        managed,
+        found: found.includes(section.name),
+      };
+    };
+    return [
+      ...detect.managed.map((section) => entry(section, true)),
+      // Sections outside the WolUPS block that are not offered for import are already monitored as they are.
+      ...detect.existing.filter((section) => !imported.has(section.name)).map((section) => entry(section, false)),
+    ];
+  }, [detect, host?.ups, picks, found]);
   const listenOptions = useMemo(
     () =>
       (host?.interfaces ?? []).flatMap((iface) =>
@@ -490,6 +531,10 @@ export function NutHostWizard({
               picks={picks}
               setPicks={setPicks}
               importLabel={choice === "migrate" ? "moves into WolUPS" : "already in ups.conf"}
+              configured={configured}
+              onEdit={(item) =>
+                setEditTarget({ section: item.section, displayName: item.displayName, upsId: item.upsId })
+              }
             />
           )}
 
@@ -563,6 +608,14 @@ export function NutHostWizard({
             </Button>
           )}
         </DialogFooter>
+        <NutUpsEditDialog
+          host={host ?? null}
+          target={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setDetect(null);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -675,6 +728,8 @@ function ScanStep({
   picks,
   setPicks,
   importLabel,
+  configured,
+  onEdit,
 }: {
   usb: boolean;
   setUsb: (value: boolean) => void;
@@ -689,6 +744,8 @@ function ScanStep({
   picks: Pick[];
   setPicks: (update: (current: Pick[]) => Pick[]) => void;
   importLabel: string;
+  configured: Configured[];
+  onEdit: (item: Configured) => void;
 }) {
   const set = (patch: Partial<SnmpForm>) => setSnmp({ ...snmp, ...patch });
   const update = (key: string, patch: Partial<Pick>) =>
@@ -820,6 +877,29 @@ function ScanStep({
       {log}
       {error && <Warning>{error}</Warning>}
 
+      {configured.length > 0 && (
+        <div className="grid gap-2">
+          <p className="text-sm font-medium">Already set up</p>
+          {configured.map((item) => (
+            <div key={item.section.name} className="flex items-center justify-between gap-3 rounded-md border p-3">
+              <div className="min-w-0 text-sm">
+                <p className="font-medium">
+                  {item.displayName}
+                  {item.found && <span className="text-success font-normal"> · found</span>}
+                </p>
+                <p className="text-muted-foreground truncate text-xs">{sectionSummary(item.section)}</p>
+              </div>
+              {item.managed && (
+                <Button size="sm" variant="outline" onClick={() => onEdit(item)}>
+                  <Pencil />
+                  Edit
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {picks.length > 0 && (
         <div className="grid gap-2">
           {picks.map((p) => (
@@ -828,7 +908,7 @@ function ScanStep({
                 <Checkbox checked={p.checked} onCheckedChange={(v) => update(p.key, { checked: v === true })} />
                 {p.displayName}
                 <span className="text-muted-foreground font-normal">
-                  {p.imported ? importLabel : `${p.section.driver} · ${p.section.port}`}
+                  {p.imported ? importLabel : sectionSummary(p.section)}
                 </span>
               </label>
               {p.checked && (
