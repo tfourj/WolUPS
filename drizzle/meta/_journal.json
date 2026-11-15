@@ -43,6 +43,13 @@
       "when": 1794690804315,
       "tag": "0005_session_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794760528292,
+      "tag": "0006_ups_description",
+      "breakpoints": true
     }
   ]
 }

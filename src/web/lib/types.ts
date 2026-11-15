@@ -14,6 +14,7 @@ export type Outage = {
 export type Ups = {
   id: string;
   name: string;
+  description: string | null;
   host: string;
   port: number;
   upsName: string;

@@ -1,0 +1,1 @@
+ALTER TABLE `ups` ADD `description` text;

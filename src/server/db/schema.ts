@@ -89,6 +89,7 @@ export const settings = sqliteTable("settings", {
 export const ups = sqliteTable("ups", {
   id: uuid(),
   name: text().notNull(),
+  description: text(),
   host: text().notNull(),
   port: integer().notNull().default(3493),
   upsName: text().notNull(),

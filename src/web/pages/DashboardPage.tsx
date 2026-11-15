@@ -6,7 +6,7 @@ import { BatteryChart } from "@/components/BatteryChart";
 import { BatteryBar, EmptyState, StatCard, ToneBadge } from "@/components/common";
 import { EventSummary } from "@/components/EventRow";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,6 +21,7 @@ function UpsCard({ ups }: { ups: Ups }) {
     <Card className="gap-4">
       <CardHeader>
         <CardTitle className="truncate">{ups.name}</CardTitle>
+        {ups.description && <CardDescription className="truncate">{ups.description}</CardDescription>}
         <CardAction>
           <ToneBadge tone={state.tone}>{state.label}</ToneBadge>
         </CardAction>
