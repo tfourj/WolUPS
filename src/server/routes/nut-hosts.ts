@@ -11,7 +11,7 @@ import { env } from "../env";
 import { emitEvent } from "../events";
 import { nutTarget } from "../monitor/ups-monitor";
 import { fetchUpsControls } from "../nut/client";
-import { applyNutConfig, removeNutUps } from "../nut-hosts/apply";
+import { adoptableUps, applyNutConfig, previewNutConfig, removeNutUps } from "../nut-hosts/apply";
 import {
   applySchema,
   CONF_VALUE,
@@ -155,7 +155,15 @@ nutHostRoutes.post("/:id/detect", async (c) => {
     })
     .where(eq(nutHosts.id, host.id))
     .run();
-  return c.json(result);
+  // UPS entries added by hand for this host's NUT server, which setup will take over.
+  const names = [...result.existing, ...result.managed].map((section) => section.name);
+  const adopt = adoptableUps(host.id, names).map(({ id, name, upsName, host: address }) => ({
+    id,
+    name,
+    upsName,
+    host: address,
+  }));
+  return c.json({ ...result, adopt });
 });
 
 nutHostRoutes.post("/:id/install", (c) => {
@@ -185,6 +193,15 @@ nutHostRoutes.post("/:id/apply", async (c) => {
   const host = withHost(c);
   if (!host) return c.json({ error: "not found" }, 404);
   const outcome = await applyNutConfig(host.id, body);
+  return outcome.ok ? c.json(outcome) : c.json(outcome, 502);
+});
+
+nutHostRoutes.post("/:id/preview", async (c) => {
+  const body = await parseBody(c, applySchema);
+  if (body instanceof Response) return body;
+  const host = withHost(c);
+  if (!host) return c.json({ error: "not found" }, 404);
+  const outcome = await previewNutConfig(host.id, body);
   return outcome.ok ? c.json(outcome) : c.json(outcome, 502);
 });
 

@@ -105,6 +105,8 @@ export const applySchema = z.object({
     .max(16),
   listen: z.ipv4(),
   localShutdown: z.boolean().default(false),
+  /** Move the imported sections into the WolUPS block instead of only monitoring them. */
+  migrate: z.boolean().default(false),
 });
 
 export type ApplyInput = z.infer<typeof applySchema>;
@@ -132,6 +134,8 @@ export type DetectResult = {
   existing: ConfSection[];
   /** UPS sections WolUPS manages. */
   managed: ConfSection[];
+  /** The rest of an existing NUT setup, for the migration prompt. */
+  config: { mode: string; listen: string[]; users: string[]; monitors: string[] };
 };
 
 export type ConfSection = { name: string; driver: string; port: string; desc?: string; extra?: Record<string, string> };

@@ -4,7 +4,13 @@ import { db } from "../src/server/db/client";
 import { agents, devices, nutHosts, ups } from "../src/server/db/schema";
 import { agentHub } from "../src/server/agents/hub";
 import { commandAllowed } from "../src/server/agents/protocol";
-import { applyNutConfig, removeNutUps, verifyFromServer } from "../src/server/nut-hosts/apply";
+import {
+  adoptableUps,
+  applyNutConfig,
+  previewNutConfig,
+  removeNutUps,
+  verifyFromServer,
+} from "../src/server/nut-hosts/apply";
 import { applySchema, redactPayload, snmpSchema } from "../src/server/nut-hosts/commands";
 import { healthChanges, nutProblems } from "../src/server/nut-hosts/health";
 import { box } from "../src/server/secrets";
@@ -106,6 +112,7 @@ describe("applying a NUT config", () => {
     imported: [{ name: "old", displayName: "Old UPS" }],
     listen: "192.168.1.5",
     localShutdown: false,
+    migrate: false,
   };
   const applied = async () => ({
     ok: true,
@@ -181,5 +188,64 @@ describe("applying a NUT config", () => {
     );
     expect(error).toBeNull();
     expect(calls).toBe(3);
+  });
+});
+
+describe("existing NUT setups", () => {
+  const input = {
+    ups: [],
+    imported: [{ name: "rack", displayName: "Rack" }],
+    listen: "192.168.1.5",
+    localShutdown: false,
+    migrate: true,
+  };
+
+  test("a UPS added by hand for the host is taken over, with its devices", async () => {
+    const hostId = db.insert(nutHosts).values({ name: "pi-adopt" }).returning().get().id;
+    db.insert(agents)
+      .values({
+        kind: "nut",
+        nutHostId: hostId,
+        publicKey: "pk-adopt",
+        hostname: "raspberrypi",
+        interfaces: [{ name: "eth0", mac: "aa:bb:cc:dd:ee:ff", cidrs: ["192.168.1.5/24"] }],
+      })
+      .run();
+    const manual = db
+      .insert(ups)
+      .values({ name: "My rack", host: "raspberrypi.local", upsName: "rack", username: "monuser" })
+      .returning()
+      .get();
+    const other = db.insert(ups).values({ name: "Elsewhere", host: "10.9.9.9", upsName: "rack" }).returning().get();
+    const device = db.insert(devices).values({ name: "nas-adopt", upsId: manual.id }).returning().get();
+
+    expect(adoptableUps(hostId, ["rack"]).map((row) => row.id)).toEqual([manual.id]);
+
+    const sent: Record<string, unknown>[] = [];
+    const run = async (_host: string, _type: string, args?: Record<string, unknown>) => {
+      sent.push(args ?? {});
+      return { ok: true, result: { files: [], monitorUser: "wolups", monitorPassword: "pw" } };
+    };
+    const outcome = await applyNutConfig(hostId, input, { run, verify: async () => ({}) });
+    expect(outcome).toEqual({ ok: true, upsIds: [manual.id] });
+    expect(sent[0]).toMatchObject({ migrate: ["rack"] });
+    const adopted = db.select().from(ups).where(eq(ups.id, manual.id)).get()!;
+    expect(adopted).toMatchObject({ name: "My rack", nutHostId: hostId, host: "192.168.1.5", username: "wolups" });
+    expect(db.select().from(devices).where(eq(devices.id, device.id)).get()?.upsId).toBe(manual.id);
+    expect(db.select().from(ups).where(eq(ups.id, other.id)).get()?.nutHostId).toBeNull();
+  });
+
+  test("the preview asks for a dry run and lists entries to take over", async () => {
+    const hostId = db.insert(nutHosts).values({ name: "pi-preview" }).returning().get().id;
+    let args: Record<string, unknown> = {};
+    const changes = [{ path: "/etc/nut/ups.conf", before: "a", after: "b" }];
+    const outcome = await previewNutConfig(hostId, input, {
+      run: async (_h, _t, a) => {
+        args = a ?? {};
+        return { ok: true, result: { files: [], changes } };
+      },
+    });
+    expect(args).toMatchObject({ dryRun: true, migrate: ["rack"] });
+    expect(outcome).toEqual({ ok: true, changes, adopt: [] });
   });
 });
