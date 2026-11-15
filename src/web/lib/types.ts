@@ -182,6 +182,8 @@ export type NutServices = {
   upsmon: string;
   listening: boolean;
   drivers: { ups: string; state: string }[];
+  upsmonEnabled?: boolean;
+  monitors?: { system: string; reachable: boolean; error?: string }[];
   reportedAt?: number;
 };
 

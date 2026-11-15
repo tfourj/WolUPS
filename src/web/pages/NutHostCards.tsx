@@ -1,6 +1,17 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, FileText, MoreHorizontal, Plus, RefreshCw, RotateCw, Terminal, Trash2 } from "lucide-react";
+import {
+  Download,
+  FileText,
+  MoreHorizontal,
+  Plus,
+  Power,
+  PowerOff,
+  RefreshCw,
+  RotateCw,
+  Terminal,
+  Trash2,
+} from "lucide-react";
 import { ToneBadge } from "@/components/common";
 import { ConfirmAction } from "@/components/confirm";
 import { Button } from "@/components/ui/button";
@@ -46,6 +57,15 @@ function LogsDialog({ host, onClose }: { host: NutHost | null; onClose: () => vo
   );
 }
 
+/** upsmon on the host: whether it runs and which MONITOR targets it cannot reach. Null when NUT has no upsmon. */
+function upsmonState(host: NutHost) {
+  const services = host.services;
+  if (!services || services.upsmon === "missing") return null;
+  const running = services.upsmon === "running";
+  const unreachable = running ? (services.monitors ?? []).filter((m) => !m.reachable) : [];
+  return { running, unreachable };
+}
+
 function hostState(host: NutHost) {
   if (!host.agent) return { tone: "muted" as const, label: "Not paired" };
   if (!host.agent.connected) return { tone: "error" as const, label: "Offline" };
@@ -80,6 +100,11 @@ export function NutHostCards({
     (h: NutHost) => api.patch(`/nut-hosts/${h.id}/agent`, { autoUpdate: !h.agent?.autoUpdate }),
     { invalidate: [["nut-hosts"]] },
   );
+  const upsmon = useAction(
+    ({ host, enabled }: { host: NutHost; enabled: boolean }) =>
+      api.post(`/nut-hosts/${host.id}/upsmon`, { enabled }),
+    { invalidate: [["nut-hosts"]], success: "upsmon updated" },
+  );
   const remove = useAction((h: NutHost) => api.delete(`/nut-hosts/${h.id}`), {
     invalidate: [["nut-hosts"], ["ups"]],
     success: "NUT host removed",
@@ -89,6 +114,7 @@ export function NutHostCards({
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {hosts.map((host) => {
         const state = hostState(host);
+        const monitor = upsmonState(host);
         const details = [
           host.nutVersion ? `NUT v${host.nutVersion}` : "NUT not installed",
           host.agent?.version ? `agent v${host.agent.version}` : null,
@@ -107,6 +133,14 @@ export function NutHostCards({
                 <p className="text-muted-foreground text-xs">
                   {host.ups.length ? host.ups.map((u) => u.name).join(", ") : "No UPS yet"}
                 </p>
+                {monitor && (
+                  <p className="text-muted-foreground text-xs">upsmon {monitor.running ? "running" : "off"}</p>
+                )}
+                {monitor?.unreachable.map((m) => (
+                  <p key={m.system} className="text-warning text-xs">
+                    upsmon cannot reach {m.system} ({m.error ?? "cannot connect"})
+                  </p>
+                ))}
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -127,6 +161,32 @@ export function NutHostCards({
                     <FileText />
                     Logs
                   </DropdownMenuItem>
+                  {monitor &&
+                    (monitor.running ? (
+                      <ConfirmAction
+                        title={`Turn off upsmon on ${host.name}?`}
+                        description={
+                          `${host.name} stops shutting itself down when the UPS runs low. WolUPS keeps ` +
+                          "monitoring its UPS and still shuts down devices with agents."
+                        }
+                        confirmLabel="Turn off"
+                        onConfirm={() => upsmon.mutateAsync({ host, enabled: false })}
+                        trigger={
+                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!host.agent?.connected}>
+                            <PowerOff />
+                            Turn off upsmon
+                          </DropdownMenuItem>
+                        }
+                      />
+                    ) : (
+                      <DropdownMenuItem
+                        onClick={() => upsmon.mutate({ host, enabled: true })}
+                        disabled={!host.agent?.connected}
+                      >
+                        <Power />
+                        Turn on upsmon
+                      </DropdownMenuItem>
+                    ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => onOpenWizard(host, "install")}>
                     <Terminal />
