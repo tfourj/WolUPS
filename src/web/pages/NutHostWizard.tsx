@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CommandState, ConfSection, Enrollment, NutDetect, NutHost, ScanDevice } from "@/lib/types";
+import type { CommandState, ConfSection, Enrollment, FileChange, NutDetect, NutHost, ScanDevice } from "@/lib/types";
+import { ChangePreview, ExistingConfig, hasExistingConfig, type ExistingChoice } from "./NutExistingConfig";
 
 export type WizardStep = "install" | "check" | "scan" | "configure" | "apply";
 
@@ -153,6 +154,9 @@ export function NutHostWizard({
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applied, setApplied] = useState<string[] | null>(null);
+  const [choice, setChoice] = useState<ExistingChoice>("migrate");
+  const [preview, setPreview] = useState<{ changes: FileChange[]; adopt: { name: string }[] } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Reset whenever the wizard opens.
   useEffect(() => {
@@ -175,6 +179,9 @@ export function NutHostWizard({
     setApplying(false);
     setApplyError(null);
     setApplied(null);
+    setChoice("migrate");
+    setPreview(null);
+    setPreviewError(null);
   }, [open, initialHost, startAt]);
 
   const { data: host } = useQuery({
@@ -218,9 +225,10 @@ export function NutHostWizard({
           (section) =>
             current.find((p) => p.key === `import:${section.name}`) ?? {
               key: `import:${section.name}`,
-              checked: false,
+              checked: true,
               name: section.name,
-              displayName: section.desc || section.name,
+              displayName:
+                detect.adopt.find((entry) => entry.upsName === section.name)?.name || section.desc || section.name,
               section,
               imported: true,
             },
@@ -229,11 +237,13 @@ export function NutHostWizard({
     });
   }, [detect, monitoredKey]);
 
+  // Prefer an address upsd already listens on, else the host's first address.
   useEffect(() => {
     if (listen || !host) return;
-    const first = host.interfaces.flatMap((i) => i.cidrs)[0];
-    if (first) setListen(first.split("/")[0]);
-  }, [host, listen]);
+    const ips = host.interfaces.flatMap((i) => i.cidrs.map((cidr) => cidr.split("/")[0]));
+    const current = detect?.config.listen.find((addr) => ips.includes(addr));
+    if (current || ips[0]) setListen(current ?? ips[0]);
+  }, [host, listen, detect]);
 
   const createHost = async () => {
     try {
@@ -344,13 +354,11 @@ export function NutHostWizard({
     [host?.interfaces],
   );
 
-  const apply = async () => {
-    setApplying(true);
-    setApplyError(null);
+  const request = useCallback(() => {
     const secrets = snmpOn ? snmpSecrets(snmp) : {};
-    try {
-      await api.post(`/nut-hosts/${hostId}/apply`, {
-        ups: selected
+    const chosen = picks.filter((p) => p.checked);
+    return {
+      ups: chosen
           .filter((p) => !p.imported)
           .map((p) => ({
             name: p.name,
@@ -360,10 +368,33 @@ export function NutHostWizard({
             ...(p.section.desc ? { desc: p.section.desc.replace(/["\\\n]/g, "").slice(0, 100) } : {}),
             extra: { ...p.section.extra, ...(p.section.driver === "snmp-ups" ? secrets : {}) },
           })),
-        imported: selected.filter((p) => p.imported).map((p) => ({ name: p.name, displayName: p.displayName })),
-        listen,
-        localShutdown,
-      });
+      imported: chosen.filter((p) => p.imported).map((p) => ({ name: p.name, displayName: p.displayName })),
+      listen,
+      localShutdown,
+      migrate: choice === "migrate",
+    };
+  }, [picks, snmpOn, snmp, listen, localShutdown, choice]);
+
+  // Ask the agent what applying would change whenever the configuration changes.
+  useEffect(() => {
+    if (step !== "configure" || !hostId || !listen) return;
+    let current = true;
+    setPreview(null);
+    setPreviewError(null);
+    api
+      .post<{ changes: FileChange[]; adopt: { name: string }[] }>(`/nut-hosts/${hostId}/preview`, request())
+      .then((result) => current && setPreview(result))
+      .catch((error) => current && setPreviewError(error instanceof Error ? error.message : String(error)));
+    return () => {
+      current = false;
+    };
+  }, [step, hostId, listen, request]);
+
+  const apply = async () => {
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await api.post(`/nut-hosts/${hostId}/apply`, request());
       setApplied(selected.map((p) => p.displayName));
       queryClient.invalidateQueries({ queryKey: ["ups"] });
       queryClient.invalidateQueries({ queryKey: ["nut-hosts"] });
@@ -381,7 +412,7 @@ export function NutHostWizard({
     install: connected,
     check: connected && nutReady,
     scan: selected.length > 0 && namesValid && !scanCommand,
-    configure: !!listen,
+    configure: !!listen && !!preview,
     apply: false,
   };
   const index = STEPS.findIndex((s) => s.id === step);
@@ -425,6 +456,9 @@ export function NutHostWizard({
                   <Row label="Config">{detect.configDir}</Row>
                 </dl>
               )}
+              {detect?.nutVersion && hasExistingConfig(detect) && (
+                <ExistingConfig detect={detect} choice={choice} onChoice={setChoice} />
+              )}
               {detect && !detect.nutVersion && !installCommand && (
                 <div>
                   <Button onClick={startInstall} disabled={!detect.packageManager}>
@@ -455,6 +489,7 @@ export function NutHostWizard({
               error={scanError}
               picks={picks}
               setPicks={setPicks}
+              importLabel={choice === "migrate" ? "moves into WolUPS" : "already in ups.conf"}
             />
           )}
 
@@ -479,18 +514,13 @@ export function NutHostWizard({
               </SwitchRow>
               <dl className="grid gap-2">
                 <Row label="UPS">{selected.map((p) => `${p.displayName} (${p.name})`).join(", ")}</Row>
-                <Row label="Files">
-                  <ul className="font-mono text-xs">
-                    {["ups.conf", "upsd.conf", "upsd.users", "nut.conf", ...(localShutdown ? ["upsmon.conf"] : [])].map(
-                      (file) => (
-                        <li key={file}>
-                          {detect?.configDir ?? host?.configDir}/{file}
-                        </li>
-                      ),
-                    )}
-                  </ul>
-                </Row>
+                {preview && preview.adopt.length > 0 && (
+                  <Row label="Takes over">{preview.adopt.map((entry) => entry.name).join(", ")}</Row>
+                )}
               </dl>
+              {previewError && <Warning>{previewError}</Warning>}
+              {!preview && !previewError && <Loader2 className="text-muted-foreground mx-auto size-5 animate-spin" />}
+              {preview && <ChangePreview changes={preview.changes} />}
             </div>
           )}
 
@@ -644,6 +674,7 @@ function ScanStep({
   error,
   picks,
   setPicks,
+  importLabel,
 }: {
   usb: boolean;
   setUsb: (value: boolean) => void;
@@ -657,6 +688,7 @@ function ScanStep({
   error: string | null;
   picks: Pick[];
   setPicks: (update: (current: Pick[]) => Pick[]) => void;
+  importLabel: string;
 }) {
   const set = (patch: Partial<SnmpForm>) => setSnmp({ ...snmp, ...patch });
   const update = (key: string, patch: Partial<Pick>) =>
@@ -796,7 +828,7 @@ function ScanStep({
                 <Checkbox checked={p.checked} onCheckedChange={(v) => update(p.key, { checked: v === true })} />
                 {p.displayName}
                 <span className="text-muted-foreground font-normal">
-                  {p.imported ? "already in ups.conf" : `${p.section.driver} · ${p.section.port}`}
+                  {p.imported ? importLabel : `${p.section.driver} · ${p.section.port}`}
                 </span>
               </label>
               {p.checked && (

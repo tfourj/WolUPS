@@ -6,6 +6,7 @@ import { cidrContains, parseCidr } from "../src/server/wol/cidr";
 import { magicPacket, normalizeMac, parseMac } from "../src/server/wol/magic";
 import { parseArpCommand, parseArpTable } from "../src/server/wol/resolve-mac";
 import { compareNames } from "../src/shared/sort";
+import { lineDiff, withContext } from "../src/web/lib/diff";
 import { isNewerVersion } from "../src/shared/version";
 
 describe("patchSchema", () => {
@@ -82,5 +83,26 @@ describe("arp parsing", () => {
   test("reads macOS arp output with short octets", () => {
     expect(parseArpCommand("? (192.168.1.1) at 0:11:32:a:b:c on en0 ifscope [ethernet]")).toBe("00:11:32:0a:0b:0c");
     expect(parseArpCommand("192.168.1.9 (192.168.1.9) -- no entry")).toBeNull();
+  });
+});
+
+describe("config diff", () => {
+  test("marks added and removed lines and folds long unchanged runs", () => {
+    const before = "a\nb\nc\nd\ne\nf\ng\n";
+    const after = "a\nb\nc\nd\ne\nf\nG\nh\n";
+    const diff = lineDiff(before, after);
+    expect(diff.filter((l) => l.kind !== "same")).toEqual([
+      { kind: "remove", text: "g" },
+      { kind: "add", text: "G" },
+      { kind: "add", text: "h" },
+    ]);
+    expect(withContext(diff, 1)).toEqual([
+      null,
+      { kind: "same", text: "f" },
+      { kind: "remove", text: "g" },
+      { kind: "add", text: "G" },
+      { kind: "add", text: "h" },
+    ]);
+    expect(lineDiff("", "x\n")).toEqual([{ kind: "add", text: "x" }]);
   });
 });

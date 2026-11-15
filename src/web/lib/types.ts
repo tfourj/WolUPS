@@ -222,7 +222,12 @@ export type NutDetect = {
   services: { upsd: string; upsmon: string };
   existing: ConfSection[];
   managed: ConfSection[];
+  config: { mode: string; listen: string[]; users: string[]; monitors: string[] };
+  /** UPS entries added by hand for this host that setup takes over. */
+  adopt: { id: string; name: string; upsName: string; host: string }[];
 };
+
+export type FileChange = { path: string; before: string; after: string };
 
 export type ScanDevice = {
   driver: string;
