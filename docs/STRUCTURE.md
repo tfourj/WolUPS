@@ -36,7 +36,9 @@ WolUPS/
 │       ├── components/              Layout, shared components, shadcn/ui primitives
 │       ├── lib/                     API client, auth client, types, formatting, theme
 │       └── pages/                   Dashboard, UPS, Devices, Events, Channels, Settings, auth pages
-├── agent/                           Go agent, install.sh and uninstall.sh
+├── agent/                           Go agents, install.sh and uninstall.sh
+│   ├── internal/core/               Pairing, connection, signed commands, updates, service file
+│   └── cmd/wolups-agent/            Device agent: shutdown, wake, MAC lookup
 ├── tests/                           bun test suites
 ├── scripts/                         README screenshot generator with demo data
 ├── docs/                            Configuration, build guide, versioning, screenshots and logo

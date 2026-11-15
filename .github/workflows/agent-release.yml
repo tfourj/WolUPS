@@ -36,7 +36,7 @@ jobs:
           mkdir -p ../dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/wolups-agent-linux-$arch .
+              -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/wolups-agent-linux-$arch ./cmd/wolups-agent
           done
           ../dist/wolups-agent-linux-amd64 version
       - name: Package release files
