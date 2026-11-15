@@ -7,6 +7,7 @@ import { magicPacket, normalizeMac, parseMac } from "../src/server/wol/magic";
 import { parseArpCommand, parseArpTable } from "../src/server/wol/resolve-mac";
 import { compareNames } from "../src/shared/sort";
 import { lineDiff, withContext } from "../src/web/lib/diff";
+import { matchScanned, scanLabel } from "../src/web/lib/nut-match";
 import { isNewerVersion } from "../src/shared/version";
 
 describe("patchSchema", () => {
@@ -104,5 +105,42 @@ describe("config diff", () => {
       { kind: "add", text: "h" },
     ]);
     expect(lineDiff("", "x\n")).toEqual([{ kind: "add", text: "x" }]);
+  });
+});
+
+describe("matching scanned UPS to ups.conf", () => {
+  const usb = (serial?: string) => ({
+    driver: "usbhid-ups",
+    port: "auto",
+    vendor: "1",
+    product: "2200R",
+    vendorid: "0764",
+    productid: "0601",
+    serial,
+  });
+  const section = (name: string, extra: Record<string, string>) => ({
+    name,
+    driver: "usbhid-ups",
+    port: "auto",
+    extra,
+  });
+
+  test("identical models are told apart by serial", () => {
+    const devices = [usb("AAA"), usb("BBB"), usb("CCC")];
+    const matches = matchScanned(devices, [section("ups2", { serial: "bbb" }), section("ups1", { serial: "AAA" })]);
+    expect([...matches.entries()]).toEqual([
+      [0, "ups1"],
+      [1, "ups2"],
+    ]);
+    expect(scanLabel(devices[2], devices)).toBe("1 2200R (CCC)");
+    expect(scanLabel(devices[0], [devices[0]])).toBe("1 2200R");
+  });
+
+  test("without serials, ids only match when there is no doubt", () => {
+    const one = section("ups1", { vendorid: "0764", productid: "0601" });
+    expect(matchScanned([usb()], [one]).get(0)).toBe("ups1");
+    expect(matchScanned([usb(), usb()], [one]).size).toBe(0);
+    const snmp = { driver: "snmp-ups", port: "10.0.0.5" };
+    expect(matchScanned([snmp], [{ name: "apc", driver: "snmp-ups", port: "10.0.0.5" }]).get(0)).toBe("apc");
   });
 });
