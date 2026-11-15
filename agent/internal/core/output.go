@@ -111,23 +111,40 @@ func (o *Output) Tail() []string {
 
 // Exec runs a command and writes its stdout and stderr line by line.
 func (o *Output) Exec(ctx context.Context, name string, args ...string) error {
+	_, err := o.ExecCapture(ctx, name, args...)
+	return err
+}
+
+// ExecCapture runs a command, writes its stdout and stderr line by line and also returns its stdout.
+func (o *Output) ExecCapture(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C")
-	reader, writer := io.Pipe()
-	cmd.Stdout = writer
-	cmd.Stderr = writer
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		scanner := bufio.NewScanner(reader)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			o.Line(scanner.Text())
-		}
-		_, _ = io.Copy(io.Discard, reader)
-	}()
+	var stdout strings.Builder
+	var wg sync.WaitGroup
+	stream := func(capture *strings.Builder) io.WriteCloser {
+		reader, writer := io.Pipe()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			scanner := bufio.NewScanner(reader)
+			scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+			for scanner.Scan() {
+				if capture != nil {
+					capture.WriteString(scanner.Text())
+					capture.WriteByte('\n')
+				}
+				o.Line(scanner.Text())
+			}
+			_, _ = io.Copy(io.Discard, reader)
+		}()
+		return writer
+	}
+	outWriter, errWriter := stream(&stdout), stream(nil)
+	cmd.Stdout = outWriter
+	cmd.Stderr = errWriter
 	err := cmd.Run()
-	writer.Close()
-	<-done
-	return err
+	outWriter.Close()
+	errWriter.Close()
+	wg.Wait()
+	return stdout.String(), err
 }
