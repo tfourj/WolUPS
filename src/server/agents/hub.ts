@@ -9,6 +9,7 @@ import { createLogger } from "../logger";
 import { serverSigningKey } from "../secrets";
 import {
   agentMessageSchema,
+  commandAllowed,
   PROTOCOL_VERSION,
   signCommand,
   verifyHello,
@@ -23,6 +24,10 @@ const log = createLogger("agents");
 
 const HELLO_TIMEOUT_MS = 10_000;
 const DISCONNECT_GRACE_MS = 90_000;
+/** Progress lines kept per command. */
+const OUTPUT_LINES = 500;
+/** How long a finished command's output stays readable. */
+const OUTPUT_TTL_MS = 10 * 60_000;
 
 type Conn = {
   ws: WSContext;
@@ -35,6 +40,8 @@ type Conn = {
 export type CommandRow = typeof commands.$inferSelect;
 export type AckResult = { ok: boolean; error?: string; result?: Record<string, unknown>; timedOut?: boolean };
 type AckHook = (command: CommandRow, ack: AckResult) => void;
+export type NutStatusMessage = Extract<AgentMessage, { type: "nut_status" }>;
+type NutStatusHook = (agentId: string, status: NutStatusMessage) => void;
 
 class AgentHub {
   private sessions = new Map<string, Conn>();
@@ -43,6 +50,8 @@ class AgentHub {
   private ackHooks: AckHook[] = [];
   private connectHooks: ((agentId: string) => void)[] = [];
   private disconnectHooks: ((agentId: string, deviceId: string) => void)[] = [];
+  private nutStatusHooks: NutStatusHook[] = [];
+  private outputs = new Map<string, string[]>();
 
   /** Mark every agent offline on startup; live sessions reconnect on their own. */
   reset() {
@@ -59,6 +68,15 @@ class AgentHub {
 
   onDisconnect(hook: (agentId: string, deviceId: string) => void) {
     this.disconnectHooks.push(hook);
+  }
+
+  onNutStatus(hook: NutStatusHook) {
+    this.nutStatusHooks.push(hook);
+  }
+
+  /** Progress lines a running or recently finished command has sent so far. */
+  commandOutput(commandId: string): string[] {
+    return this.outputs.get(commandId) ?? [];
   }
 
   isConnected(agentId: string) {
@@ -91,6 +109,8 @@ class AgentHub {
         else if (!conn.agentId) ws.close(4401, "not authenticated");
         else if (msg.type === "ack") this.handleAck(conn.agentId, msg);
         else if (msg.type === "status") this.handleStatus(conn.agentId, msg.info);
+        else if (msg.type === "progress") this.handleProgress(conn.agentId, msg);
+        else if (msg.type === "nut_status") this.handleNutStatus(conn.agentId, msg);
       },
       onClose: () => this.handleClose(conn),
     };
@@ -185,6 +205,33 @@ class AgentHub {
     if (agent) markOwnerSeen(agentOwner(agent), true);
   }
 
+  private isNutAgent(agentId: string) {
+    return db.select({ kind: agents.kind }).from(agents).where(eq(agents.id, agentId)).get()?.kind === "nut";
+  }
+
+  private handleProgress(agentId: string, msg: Extract<AgentMessage, { type: "progress" }>) {
+    const row = db
+      .select({ id: commands.id, status: commands.status })
+      .from(commands)
+      .where(and(eq(commands.id, msg.id), eq(commands.agentId, agentId)))
+      .get();
+    // Only NUT agents send progress, and only for their own commands that are still running.
+    if (!row || !["pending", "sent"].includes(row.status) || !this.isNutAgent(agentId)) return;
+    const lines = [...(this.outputs.get(row.id) ?? []), ...msg.lines];
+    this.outputs.set(row.id, lines.slice(-OUTPUT_LINES));
+  }
+
+  private handleNutStatus(agentId: string, msg: NutStatusMessage) {
+    if (!this.isNutAgent(agentId)) return;
+    for (const hook of this.nutStatusHooks) {
+      try {
+        hook(agentId, msg);
+      } catch (error) {
+        log.error("NUT status hook failed", { error });
+      }
+    }
+  }
+
   private handleAck(agentId: string, msg: Extract<AgentMessage, { type: "ack" }>) {
     const row = db
       .select()
@@ -199,6 +246,7 @@ class AgentHub {
       .where(eq(commands.id, row.id))
       .returning()
       .get();
+    if (this.outputs.has(row.id)) setTimeout(() => this.outputs.delete(row.id), OUTPUT_TTL_MS);
     const waiting = this.waiters.get(row.id) ?? [];
     this.waiters.delete(row.id);
     for (const resolve of waiting) resolve(ack);
@@ -257,6 +305,10 @@ class AgentHub {
     args: Record<string, unknown> = {},
     opts: { ttlMs?: number; outageId?: string; id?: string } = {},
   ): CommandRow {
+    const agent = db.select({ kind: agents.kind }).from(agents).where(eq(agents.id, agentId)).get();
+    if (agent && !commandAllowed(agent.kind, type)) {
+      throw new Error(`${type} is not a command for a ${agent.kind} agent`);
+    }
     const now = Date.now();
     const row = db
       .insert(commands)
