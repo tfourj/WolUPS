@@ -181,26 +181,67 @@ func outsideBlock(text string) string {
 	return before + after
 }
 
-// RenderUpsConf puts the managed sections into ups.conf, keeping everything else. A managed name must not clash
-// with a section outside the block.
-func RenderUpsConf(current string, sections []Section) (string, error) {
+// blockText is the content of the WolUPS block.
+func blockText(text string) string {
+	start := strings.Index(text, blockBegin)
+	if start < 0 {
+		return ""
+	}
+	inner := text[start+len(blockBegin):]
+	if end := strings.Index(inner, blockEnd); end >= 0 {
+		inner = inner[:end]
+	}
+	return inner
+}
+
+// ManagedSections are the UPS sections inside the WolUPS block, as written, passwords included.
+func ManagedSections(text string) []Section {
+	return ParseUpsConf(blockText(text))
+}
+
+// RenderUpsConf adds or replaces the given sections in the WolUPS block and drops the removed names. Other managed
+// sections stay as they are, passwords included, and everything outside the block is kept. A managed name must not
+// clash with a section outside the block.
+func RenderUpsConf(current string, upsert []Section, remove []string) (string, error) {
 	existing := map[string]bool{}
 	for _, s := range ParseUpsConf(outsideBlock(current)) {
 		existing[s.Name] = true
 	}
-	var body strings.Builder
-	seen := map[string]bool{}
-	for i, s := range sections {
+	removed := map[string]bool{}
+	for _, name := range remove {
+		removed[name] = true
+	}
+	replaced := map[string]Section{}
+	for _, s := range upsert {
 		if err := s.Validate(); err != nil {
 			return "", err
 		}
 		if existing[s.Name] {
 			return "", fmt.Errorf("%s already exists in ups.conf outside the WolUPS block; import it instead", s.Name)
 		}
-		if seen[s.Name] {
+		if _, dup := replaced[s.Name]; dup {
 			return "", fmt.Errorf("%s is listed twice", s.Name)
 		}
-		seen[s.Name] = true
+		replaced[s.Name] = s
+	}
+	var sections []Section
+	for _, s := range ManagedSections(current) {
+		if removed[s.Name] {
+			continue
+		}
+		if next, ok := replaced[s.Name]; ok {
+			s = next
+			delete(replaced, s.Name)
+		}
+		sections = append(sections, s)
+	}
+	for _, s := range upsert {
+		if _, pending := replaced[s.Name]; pending && !removed[s.Name] {
+			sections = append(sections, s)
+		}
+	}
+	var body strings.Builder
+	for i, s := range sections {
 		if i > 0 {
 			body.WriteString("\n")
 		}

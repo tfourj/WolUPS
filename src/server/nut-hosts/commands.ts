@@ -128,8 +128,13 @@ export type DetectResult = {
   nutVersion: string;
   configDir: string;
   services: { upsd: string; upsmon: string };
-  existing: { name: string; driver: string; port: string; desc?: string }[];
+  /** UPS sections outside the WolUPS block, which can be imported. */
+  existing: ConfSection[];
+  /** UPS sections WolUPS manages. */
+  managed: ConfSection[];
 };
+
+export type ConfSection = { name: string; driver: string; port: string; desc?: string; extra?: Record<string, string> };
 
 /** The agent of a NUT host, if one is paired. */
 export function nutAgent(hostId: string) {

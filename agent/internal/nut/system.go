@@ -48,12 +48,14 @@ func NewSystem(stateDir string) *System {
 
 // Detected describes the host for the setup wizard.
 type Detected struct {
-	OS             string    `json:"os"`
-	PackageManager string    `json:"packageManager"`
-	NUTVersion     string    `json:"nutVersion"`
-	ConfigDir      string    `json:"configDir"`
-	Services       Services  `json:"services"`
-	Existing       []Section `json:"existing"`
+	OS             string   `json:"os"`
+	PackageManager string   `json:"packageManager"`
+	NUTVersion     string   `json:"nutVersion"`
+	ConfigDir      string   `json:"configDir"`
+	Services       Services `json:"services"`
+	// Existing are sections outside the WolUPS block, Managed the ones inside. Passwords are left out of both.
+	Existing []Section `json:"existing"`
+	Managed  []Section `json:"managed"`
 }
 
 // Services are the states of upsd and upsmon: running, stopped, failed or missing.
@@ -156,16 +158,20 @@ func (s *System) unitState(ctx context.Context, unit string) string {
 // Detect describes the host and any NUT setup on it.
 func (s *System) Detect(ctx context.Context) Detected {
 	dir := s.ConfigDir()
-	existing := []Section{}
-	if data, err := os.ReadFile(filepath.Join(dir, "ups.conf")); err == nil {
-		for _, section := range ParseUpsConf(outsideBlock(string(data))) {
+	existing, managed := []Section{}, []Section{}
+	withoutSecrets := func(sections []Section) []Section {
+		for _, section := range sections {
 			for key := range section.Extra {
 				if SecretKeys[key] {
 					delete(section.Extra, key)
 				}
 			}
-			existing = append(existing, section)
 		}
+		return sections
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "ups.conf")); err == nil {
+		existing = append(existing, withoutSecrets(ParseUpsConf(outsideBlock(string(data))))...)
+		managed = append(managed, withoutSecrets(ManagedSections(string(data)))...)
 	}
 	return Detected{
 		OS:             osName(),
@@ -174,6 +180,7 @@ func (s *System) Detect(ctx context.Context) Detected {
 		ConfigDir:      dir,
 		Services:       Services{Upsd: s.unitState(ctx, "nut-server"), Upsmon: s.unitState(ctx, "nut-monitor")},
 		Existing:       existing,
+		Managed:        managed,
 	}
 }
 
@@ -307,9 +314,11 @@ func readFile(path string) (string, error) {
 	return string(data), err
 }
 
-// ApplyRequest is the nut_apply command.
+// ApplyRequest is the nut_apply command. UPS sections are added or replaced, Remove drops managed sections by name,
+// and every other managed section is kept.
 type ApplyRequest struct {
 	UPS           []Section `json:"ups"`
+	Remove        []string  `json:"remove,omitempty"`
 	Listen        string    `json:"listen"`
 	LocalShutdown bool      `json:"localShutdown"`
 }
@@ -339,7 +348,7 @@ func (s *System) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	newUpsConf, err := RenderUpsConf(upsConf, req.UPS)
+	newUpsConf, err := RenderUpsConf(upsConf, req.UPS, req.Remove)
 	if err != nil {
 		return ApplyResult{}, err
 	}

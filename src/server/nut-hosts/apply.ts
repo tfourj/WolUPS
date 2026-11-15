@@ -1,4 +1,4 @@
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { nutHosts, ups } from "../db/schema";
 import { fetchUpsSnapshot, type NutTarget } from "../nut/client";
@@ -43,8 +43,8 @@ export async function verifyFromServer(
 
 /**
  * Write the NUT config on the host, check from the server that every UPS can be read on the listen address, then
- * create or update the UPS entries. Entries of this host that are no longer in the list are removed. Nothing is
- * created when the server cannot read a UPS.
+ * create or update the UPS entries. Other UPS of the host stay as they are. Nothing is created when the server
+ * cannot read a UPS.
  */
 export async function applyNutConfig(
   hostId: string,
@@ -101,10 +101,6 @@ export async function applyNutConfig(
         ids.push(row.id);
       }
     }
-    const stale = ids.length
-      ? and(eq(ups.nutHostId, hostId), notInArray(ups.id, ids))
-      : eq(ups.nutHostId, hostId);
-    tx.delete(ups).where(stale).run();
     tx.update(nutHosts)
       .set({ listenAddress: input.listen, localShutdown: input.localShutdown })
       .where(eq(nutHosts.id, hostId))
@@ -113,4 +109,33 @@ export async function applyNutConfig(
   });
   upsMonitor.pollNow();
   return { ok: true, upsIds };
+}
+
+/**
+ * Remove a UPS: its section leaves the WolUPS block on the host (a UPS imported from an existing config is left in
+ * ups.conf), then its entry is deleted.
+ */
+export async function removeNutUps(
+  hostId: string,
+  upsId: string,
+  deps: { run?: typeof runNutCommand } = {},
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const host = db.select().from(nutHosts).where(eq(nutHosts.id, hostId)).get();
+  const row = db
+    .select()
+    .from(ups)
+    .where(and(eq(ups.id, upsId), eq(ups.nutHostId, hostId)))
+    .get();
+  if (!host || !row) return { ok: false, error: "not found" };
+  if (!host.listenAddress) return { ok: false, error: "this NUT host has not been set up yet" };
+  const run = deps.run ?? runNutCommand;
+  const ack = await run(hostId, "nut_apply", {
+    ups: [],
+    remove: [row.upsName],
+    listen: host.listenAddress,
+    localShutdown: host.localShutdown,
+  });
+  if (!ack.ok) return { ok: false, error: ack.error ?? "the NUT agent could not change the config" };
+  db.delete(ups).where(eq(ups.id, row.id)).run();
+  return { ok: true };
 }

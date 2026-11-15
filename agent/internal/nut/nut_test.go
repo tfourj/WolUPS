@@ -13,7 +13,7 @@ var rack = Section{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "Rack
 	Extra: map[string]string{"vendorid": "0764", "productid": "0501"}}
 
 func TestRenderUpsConfFresh(t *testing.T) {
-	got, err := RenderUpsConf("", []Section{rack})
+	got, err := RenderUpsConf("", []Section{rack}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,25 +37,32 @@ func TestRenderUpsConfFresh(t *testing.T) {
 
 func TestRenderUpsConfKeepsExistingAndReplacesBlock(t *testing.T) {
 	existing := "maxretry = 3\n\n[old]\n\tdriver = blazer_usb\n\tport = auto\n"
-	first, err := RenderUpsConf(existing, []Section{rack})
+	snmp := Section{Name: "snmp", Driver: "snmp-ups", Port: "10.0.0.5", Extra: map[string]string{"community": "s3cret-c"}}
+	first, err := RenderUpsConf(existing, []Section{rack, snmp}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := RenderUpsConf(first, []Section{{Name: "spare", Driver: "usbhid-ups", Port: "auto"}})
+	// Adding another UPS keeps the managed ones, passwords included.
+	second, err := RenderUpsConf(first, []Section{{Name: "spare", Driver: "usbhid-ups", Port: "auto"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(second, existing) || strings.Contains(second, "[rack]") || !strings.Contains(second, "[spare]") {
-		t.Fatalf("block not replaced in place:\n%s", second)
+	if !strings.HasPrefix(second, existing) || !strings.Contains(second, "[rack]") || !strings.Contains(second, "[spare]") ||
+		!strings.Contains(second, `community = "s3cret-c"`) {
+		t.Fatalf("block not merged:\n%s", second)
 	}
 	if strings.Count(second, blockBegin) != 1 {
 		t.Fatal("block duplicated")
 	}
-	empty, _ := RenderUpsConf(second, nil)
+	replaced, _ := RenderUpsConf(second, []Section{{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "New"}}, []string{"spare"})
+	if names := ManagedSections(replaced); len(names) != 2 || names[0].Desc != "New" || names[1].Name != "snmp" {
+		t.Fatalf("replace and remove: %+v", names)
+	}
+	empty, _ := RenderUpsConf(replaced, nil, []string{"rack", "snmp"})
 	if empty != existing {
 		t.Fatalf("removing every managed UPS should leave the original file, got:\n%q", empty)
 	}
-	if _, err := RenderUpsConf(existing, []Section{{Name: "old", Driver: "usbhid-ups", Port: "auto"}}); err == nil {
+	if _, err := RenderUpsConf(existing, []Section{{Name: "old", Driver: "usbhid-ups", Port: "auto"}}, nil); err == nil {
 		t.Fatal("managed section clashing with an existing one accepted")
 	}
 }

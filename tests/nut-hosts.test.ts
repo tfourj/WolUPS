@@ -4,7 +4,7 @@ import { db } from "../src/server/db/client";
 import { agents, devices, nutHosts, ups } from "../src/server/db/schema";
 import { agentHub } from "../src/server/agents/hub";
 import { commandAllowed } from "../src/server/agents/protocol";
-import { applyNutConfig, verifyFromServer } from "../src/server/nut-hosts/apply";
+import { applyNutConfig, removeNutUps, verifyFromServer } from "../src/server/nut-hosts/apply";
 import { applySchema, redactPayload, snmpSchema } from "../src/server/nut-hosts/commands";
 import { healthChanges, nutProblems } from "../src/server/nut-hosts/health";
 import { box } from "../src/server/secrets";
@@ -135,9 +135,31 @@ describe("applying a NUT config", () => {
     expect(box.decrypt(rows[0].passwordEnc!)).toBe("pw");
     expect(db.select().from(nutHosts).where(eq(nutHosts.id, hostId)).get()?.listenAddress).toBe("192.168.1.5");
 
-    // Leaving a UPS out removes its entry and keeps the others.
-    await applyNutConfig(hostId, { ...input, imported: [] }, { run: applied, verify: async () => ({}) });
-    expect(db.select().from(ups).where(eq(ups.nutHostId, hostId)).all().map((r) => r.upsName)).toEqual(["rack"]);
+    // Adding another UPS later keeps the existing entries.
+    const spare = { ...input.ups[0], name: "spare", displayName: "Spare" };
+    await applyNutConfig(hostId, { ...input, ups: [spare], imported: [] }, { run: applied, verify: async () => ({}) });
+    const names = () =>
+      db
+        .select()
+        .from(ups)
+        .where(eq(ups.nutHostId, hostId))
+        .all()
+        .map((r) => r.upsName)
+        .sort();
+    expect(names()).toEqual(["old", "rack", "spare"]);
+
+    // Removing one asks the agent to drop its section and deletes only that entry.
+    const sent: Record<string, unknown>[] = [];
+    const rackId = rows.find((r) => r.upsName === "rack")!.id;
+    const removed = await removeNutUps(hostId, rackId, {
+      run: async (_host, _type, args) => {
+        sent.push(args ?? {});
+        return { ok: true };
+      },
+    });
+    expect(removed).toEqual({ ok: true });
+    expect(sent).toEqual([{ ups: [], remove: ["rack"], listen: "192.168.1.5", localShutdown: false }]);
+    expect(names()).toEqual(["old", "spare"]);
   });
 
   test("reports the agent's error", async () => {

@@ -11,7 +11,7 @@ import { env } from "../env";
 import { emitEvent } from "../events";
 import { nutTarget } from "../monitor/ups-monitor";
 import { fetchUpsControls } from "../nut/client";
-import { applyNutConfig } from "../nut-hosts/apply";
+import { applyNutConfig, removeNutUps } from "../nut-hosts/apply";
 import {
   applySchema,
   CONF_VALUE,
@@ -221,6 +221,12 @@ function managedUps(hostId: string, upsId: string) {
     .where(and(eq(ups.id, upsId), eq(ups.nutHostId, hostId)))
     .get();
 }
+
+nutHostRoutes.delete("/:id/ups/:upsId", async (c) => {
+  const outcome = await removeNutUps(c.req.param("id"), c.req.param("upsId"));
+  if (outcome.ok) return c.json(outcome);
+  return c.json(outcome, outcome.error === "not found" ? 404 : 502);
+});
 
 nutHostRoutes.get("/:id/ups/:upsId/controls", async (c) => {
   const row = managedUps(c.req.param("id"), c.req.param("upsId"));
