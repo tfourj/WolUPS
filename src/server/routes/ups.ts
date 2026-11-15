@@ -27,6 +27,7 @@ export function serializeUps(row: UpsRow) {
 
 const upsSchema = z.object({
   name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(200).nullish(),
   host: z.string().trim().min(1).max(255),
   port: z.number().int().min(1).max(65535).default(3493),
   upsName: z.string().trim().min(1).max(100),
@@ -51,6 +52,7 @@ upsRoutes.post("/", async (c) => {
     .insert(ups)
     .values({
       name: body.name,
+      description: body.description || null,
       host: body.host,
       port: body.port,
       upsName: body.upsName,
@@ -75,6 +77,7 @@ upsRoutes.patch("/:id", async (c) => {
     .set({
       ...rest,
       ...(rest.username !== undefined ? { username: rest.username || null } : {}),
+      ...(rest.description !== undefined ? { description: rest.description || null } : {}),
       // Empty or missing password keeps the stored one; null clears it.
       ...(password === null ? { passwordEnc: null } : password ? { passwordEnc: box.encrypt(password) } : {}),
     })
