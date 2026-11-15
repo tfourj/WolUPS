@@ -214,6 +214,18 @@ nutHostRoutes.post("/:id/service", async (c) => {
   return ack.ok ? c.json(ack.result ?? {}) : c.json({ error: ack.error }, 502);
 });
 
+/** Turn upsmon on or off. Off also ends "shut down this host", so NUT restarts do not start it again. */
+nutHostRoutes.post("/:id/upsmon", async (c) => {
+  const body = await parseBody(c, z.object({ enabled: z.boolean() }));
+  if (body instanceof Response) return body;
+  const host = withHost(c);
+  if (!host) return c.json({ error: "not found" }, 404);
+  const ack = await runNutCommand(host.id, "nut_upsmon", body);
+  if (!ack.ok) return c.json({ error: ack.error ?? "the NUT agent could not change upsmon" }, 502);
+  if (!body.enabled) db.update(nutHosts).set({ localShutdown: false }).where(eq(nutHosts.id, host.id)).run();
+  return c.json(serializeHost(nutHost(host.id)!));
+});
+
 nutHostRoutes.post("/:id/status", async (c) => {
   const host = withHost(c);
   if (!host) return c.json({ error: "not found" }, 404);

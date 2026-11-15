@@ -16,6 +16,7 @@ export const NUT_TIMEOUTS: Record<NutCommandType, number> = {
   nut_instcmd: 60_000,
   nut_setvar: 60_000,
   nut_logs: 30_000,
+  nut_upsmon: 60_000,
 };
 
 /** Values written into ups.conf. Passwords have their own rule. */

@@ -110,6 +110,10 @@ export type NutServices = {
   upsmon: string;
   listening: boolean;
   drivers: { ups: string; state: string }[];
+  /** Whether nut-monitor starts at boot. Missing from agents before 0.1.1. */
+  upsmonEnabled?: boolean;
+  /** The UPS upsmon watches and whether this host reaches their upsd. */
+  monitors?: { system: string; reachable: boolean; error?: string }[];
   reportedAt: number;
 };
 

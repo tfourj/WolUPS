@@ -46,6 +46,20 @@ export function nutProblems(status: Omit<NutServices, "reportedAt">, host: HostI
       message: `The NUT server on ${host.name} is not listening on its configured address`,
     });
   }
+  // upsmon only matters while it runs: a MONITOR line it cannot reach means this host would not shut down.
+  if (status.upsmon === "running") {
+    for (const monitor of status.monitors ?? []) {
+      if (monitor.reachable) continue;
+      const reason = monitor.error ?? "cannot connect";
+      problems.push({
+        key: `monitor:${monitor.system}`,
+        ups: null,
+        error: `upsmon cannot reach ${monitor.system}: ${reason}`,
+        title: `upsmon cannot reach a UPS on ${host.name}`,
+        message: `upsmon on ${host.name} cannot reach ${monitor.system} (${reason})`,
+      });
+    }
+  }
   if (host.localShutdown && down(status.upsmon)) {
     problems.push({
       key: "upsmon",
@@ -82,6 +96,8 @@ export function handleNutStatus(agentId: string, msg: NutStatusMessage) {
     upsmon: msg.upsmon,
     listening: msg.listening,
     drivers: msg.drivers,
+    upsmonEnabled: msg.upsmonEnabled,
+    monitors: msg.monitors,
     reportedAt: Date.now(),
   };
   const rows = db.select().from(ups).where(eq(ups.nutHostId, host.id)).all();
@@ -130,7 +146,9 @@ export function handleNutStatus(agentId: string, msg: NutStatusMessage) {
       type: "nut_service_recovered",
       upsId: row?.id ?? null,
       title: `NUT running again on ${host.name}`,
-      message: `${what[key] ?? `The NUT driver for ${display} is running again`} on ${host.name}`,
+      message: key.startsWith("monitor:")
+        ? `upsmon on ${host.name} reaches ${key.slice("monitor:".length)} again`
+        : `${what[key] ?? `The NUT driver for ${display} is running again`} on ${host.name}`,
       data: { device: host.name, ups: display ?? undefined },
     });
   }

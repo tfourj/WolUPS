@@ -39,6 +39,22 @@ describe("NUT health", () => {
     expect(nutProblems({ ...healthy, upsd: "missing", listening: false }, host)).toEqual([]);
   });
 
+  test("warns when a running upsmon cannot reach a UPS it monitors", () => {
+    const monitors = [
+      { system: "powerwalker-1@nut.local", reachable: false, error: "no such host" },
+      { system: "rack@localhost", reachable: true },
+    ];
+    const running = nutProblems({ ...healthy, upsmon: "running", monitors }, host);
+    expect(running).toMatchObject([
+      {
+        key: "monitor:powerwalker-1@nut.local",
+        message: "upsmon on pi cannot reach powerwalker-1@nut.local (no such host)",
+      },
+    ]);
+    // Once upsmon is turned off, what it monitors no longer matters.
+    expect(nutProblems({ ...healthy, upsmon: "stopped", monitors }, host)).toEqual([]);
+  });
+
   test("notifies a problem after two reports and its recovery after two clean ones", () => {
     expect(healthChanges([], [], ["upsd"])).toEqual({ failed: [], recovered: [], notified: [] });
     expect(healthChanges([], ["upsd"], ["upsd"])).toEqual({ failed: ["upsd"], recovered: [], notified: ["upsd"] });
