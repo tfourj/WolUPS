@@ -75,7 +75,10 @@ hand for that host is taken over, so its devices and history stay.
 **Manage** in a UPS menu runs instant commands, changes writable settings, edits the UPS's name, description,
 port and serial, and removes it from NUT. The host
 card menu adds more UPS, restarts NUT and shows its logs. **NUT service failed** and **NUT service recovered**
-notify you when a driver, upsd or upsmon stops or upsd stops listening.
+notify you when a driver, upsd or upsmon stops, upsd stops listening, or upsmon cannot reach a UPS it monitors.
+
+upsmon only shuts down the machine it runs on; WolUPS does not need it. **Turn off upsmon** in the host card menu
+stops and disables it (its config stays), for example when it monitors an address that no longer resolves.
 
 ```bash
 wolups-nut-agent status              # pairing and version
