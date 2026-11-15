@@ -152,7 +152,7 @@ export function NutHostWizard({
   const [localShutdown, setLocalShutdown] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
-  const [applied, setApplied] = useState(false);
+  const [applied, setApplied] = useState<string[] | null>(null);
 
   // Reset whenever the wizard opens.
   useEffect(() => {
@@ -174,7 +174,7 @@ export function NutHostWizard({
     setLocalShutdown(initialHost?.localShutdown ?? false);
     setApplying(false);
     setApplyError(null);
-    setApplied(false);
+    setApplied(null);
   }, [open, initialHost, startAt]);
 
   const { data: host } = useQuery({
@@ -204,25 +204,30 @@ export function NutHostWizard({
     if (open && (step === "check" || step === "scan") && connected && !detect && !detecting) void runDetect();
   }, [open, step, connected, detect, detecting, runDetect]);
 
-  // Offer the UPS sections already in ups.conf for import.
+  // Offer the UPS sections already in ups.conf for import. The host refetches every few seconds, so this keys on the
+  // monitored names and keeps what the user already picked.
+  const monitoredKey = (host?.ups ?? []).map((u) => u.upsName).join(",");
   useEffect(() => {
     if (!detect) return;
-    const monitored = new Set(host?.ups.map((u) => u.upsName));
+    const monitored = new Set(monitoredKey.split(","));
     setPicks((current) => {
       const scanned = current.filter((p) => !p.imported);
       const imported = detect.existing
         .filter((section) => !monitored.has(section.name))
-        .map((section) => ({
-          key: `import:${section.name}`,
-          checked: false,
-          name: section.name,
-          displayName: section.desc || section.name,
-          section,
-          imported: true,
-        }));
+        .map(
+          (section) =>
+            current.find((p) => p.key === `import:${section.name}`) ?? {
+              key: `import:${section.name}`,
+              checked: false,
+              name: section.name,
+              displayName: section.desc || section.name,
+              section,
+              imported: true,
+            },
+        );
       return [...imported, ...scanned];
     });
-  }, [detect, host?.ups]);
+  }, [detect, monitoredKey]);
 
   useEffect(() => {
     if (listen || !host) return;
@@ -359,7 +364,7 @@ export function NutHostWizard({
         listen,
         localShutdown,
       });
-      setApplied(true);
+      setApplied(selected.map((p) => p.displayName));
       queryClient.invalidateQueries({ queryKey: ["ups"] });
       queryClient.invalidateQueries({ queryKey: ["nut-hosts"] });
       queryClient.invalidateQueries({ queryKey: ["overview"] });
@@ -501,7 +506,7 @@ export function NutHostWizard({
               {applied && (
                 <div className="flex items-center gap-2 rounded-md border p-3 text-sm">
                   <CheckCircle2 className="text-success size-4" />
-                  Added {selected.map((p) => p.displayName).join(", ")}
+                  Added {applied.join(", ")}
                 </div>
               )}
             </div>
