@@ -28,17 +28,7 @@ cd agent && go test ./...
 
 ## Releases
 
-Tag and push a version:
-
-```bash
-git tag -a v1.2.3 -m "WolUPS v1.2.3"
-git push origin main v1.2.3
-```
-
-This publishes `ghcr.io/tfourj/wolups` for `linux/amd64` and `linux/arm64`, and a GitHub release with the agent
-binaries, install scripts and checksums that agents update from.
-
-The version label in the sidebar shows the version for images of a release tag and the short commit for other builds.
+The server and the agent are tagged and released separately, see [VERSIONING.md](VERSIONING.md).
 
 ## Screenshots
 

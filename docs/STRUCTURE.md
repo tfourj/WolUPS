@@ -39,6 +39,6 @@ WolUPS/
 ├── agent/                           Go agent, install.sh and uninstall.sh
 ├── tests/                           bun test suites
 ├── scripts/                         README screenshot generator with demo data
-├── docs/                            Configuration, build guide, screenshots and logo
-└── .github/workflows/               build (checks and Docker image), agent release
+├── docs/                            Configuration, build guide, versioning, screenshots and logo
+└── .github/workflows/               build (checks, Docker image, server release), agent release
 ```
