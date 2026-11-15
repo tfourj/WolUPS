@@ -34,6 +34,15 @@ describe("templates", () => {
     expect(templateVars(event)).toMatchObject({ via: "", error: "", duration: "" });
   });
 
+  test("counts agents only for grouped agent updates", () => {
+    const event = { type: "agent_updated", title: "T", message: "M", createdAt: new Date("2026-01-01T00:00:00Z") };
+    expect(templateVars({ ...event, data: { device: "nas, pve", count: 2 } })).toMatchObject({
+      device: "nas, pve",
+      count: "2",
+    });
+    expect(templateVars({ ...event, data: { device: "nas" } }).count).toBe("");
+  });
+
   test("builds variables from event data", () => {
     const vars = templateVars({
       type: "shutdown_sent",

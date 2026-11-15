@@ -90,6 +90,7 @@ export const TEMPLATE_VARIABLES = [
   "message",
   "ups",
   "device",
+  "count",
   "battery",
   "runtime",
   "status",

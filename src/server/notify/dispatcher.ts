@@ -21,11 +21,23 @@ export function backoffMs(attempt: number): number {
   return Math.min(30_000 * 2 ** Math.max(0, attempt - 1), 30 * 60_000);
 }
 
-export function channelMatches(channel: ChannelRow, event: Pick<EventRow, "type" | "upsId" | "deviceId">): boolean {
+/** Devices an event is about: its own, or every device of a grouped agent update. */
+function eventDeviceIds(event: Pick<EventRow, "deviceId"> & { data?: EventRow["data"] }): string[] {
+  if (event.deviceId) return [event.deviceId];
+  const grouped = event.data?.deviceIds;
+  return Array.isArray(grouped) ? grouped.filter((id): id is string => typeof id === "string") : [];
+}
+
+export function channelMatches(
+  channel: ChannelRow,
+  event: Pick<EventRow, "type" | "upsId" | "deviceId"> & { data?: EventRow["data"] },
+): boolean {
   if (!channel.enabled) return false;
   if (event.type !== "test" && !channel.events.includes(event.type)) return false;
   if (channel.upsIds?.length && event.upsId && !channel.upsIds.includes(event.upsId)) return false;
-  if (channel.deviceIds?.length && event.deviceId && !channel.deviceIds.includes(event.deviceId)) return false;
+  const allowed = channel.deviceIds ?? [];
+  const deviceIds = eventDeviceIds(event);
+  if (allowed.length && deviceIds.length && !deviceIds.some((id) => allowed.includes(id))) return false;
   return true;
 }
 
