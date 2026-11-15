@@ -55,7 +55,12 @@ func main() {
 		if dir == "" {
 			dir = stateDir
 		}
-		n := &nutAgent{sys: nut.NewSystem(dir), report: make(chan struct{}, 1)}
+		sys := nut.NewSystem(dir)
+		// For development only: write the NUT config somewhere other than /etc/nut.
+		if confDir := os.Getenv("WOLUPS_NUT_CONFIG_DIR"); confDir != "" {
+			sys.ConfigDirs = []string{confDir}
+		}
+		n := &nutAgent{sys: sys, report: make(chan struct{}, 1)}
 		return core.Options{Handlers: n.handlers(), Loops: []func(context.Context, func(any) error){n.reportLoop}}
 	})
 }
