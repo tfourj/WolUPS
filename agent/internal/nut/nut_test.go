@@ -375,3 +375,39 @@ func TestEditPatchesManagedSectionInPlace(t *testing.T) {
 		}
 	}
 }
+
+func TestUpsmonMonitorsAndToggle(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "upsmon.conf"),
+		[]byte("MONITOR powerwalker-1@nut.invalid 1 mon pw primary\nMONITOR ups@127.0.0.1:1 1 mon pw slave\n"), 0o640)
+	var ran []string
+	sys := &System{ConfigDirs: []string{dir}, StateDir: filepath.Join(dir, "state"), Now: time.Now,
+		Run: func(_ context.Context, name string, args ...string) (string, error) {
+			ran = append(ran, name+" "+strings.Join(args, " "))
+			return "", nil
+		}}
+	monitors := sys.monitors()
+	if len(monitors) != 2 || monitors[0].Reachable || monitors[0].Error != "no such host" ||
+		monitors[1].Reachable || monitors[1].Error != "cannot connect" {
+		t.Fatalf("monitors: %+v", monitors)
+	}
+	acc, _ := sys.LoadAccounts()
+	acc.LocalShutdown = true
+	sys.SaveAccounts(acc)
+	if err := sys.SetUpsmon(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := sys.LoadAccounts(); after.LocalShutdown {
+		t.Fatal("turning upsmon off kept local shutdown on")
+	}
+	if err := sys.SetUpsmon(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(ran, "\n"); got != "systemctl disable --now nut-monitor.service\nsystemctl enable --now nut-monitor.service" {
+		t.Fatalf("ran:\n%s", got)
+	}
+	os.WriteFile(filepath.Join(dir, "upsmon.conf"), []byte("# nothing\n"), 0o640)
+	if err := sys.SetUpsmon(context.Background(), true); err == nil {
+		t.Fatal("turned upsmon on without MONITOR lines")
+	}
+}

@@ -158,6 +158,21 @@ func (n *nutAgent) handlers() map[string]core.Handler {
 			}
 			return core.Reply{Result: toMap(n.sys.Status(ctx))}, nil
 		}},
+		"nut_upsmon": {Run: func(ctx context.Context, raw json.RawMessage, _ *core.Output) (core.Reply, error) {
+			var args struct {
+				Enabled bool `json:"enabled"`
+			}
+			if err := decode(raw, &args); err != nil {
+				return core.Reply{}, err
+			}
+			err := n.sys.SetUpsmon(ctx, args.Enabled)
+			n.reportSoon()
+			if err != nil {
+				return core.Reply{}, err
+			}
+			log.Printf("upsmon turned %s", map[bool]string{true: "on", false: "off"}[args.Enabled])
+			return core.Reply{Result: toMap(n.sys.Status(ctx))}, nil
+		}},
 		"nut_status": {Run: func(ctx context.Context, _ json.RawMessage, _ *core.Output) (core.Reply, error) {
 			return core.Reply{Result: toMap(n.sys.Status(ctx))}, nil
 		}},
