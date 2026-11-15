@@ -49,6 +49,31 @@ curl -fsSL https://raw.githubusercontent.com/tfourj/WolUPS/main/agent/uninstall.
 
 If you unpair an offline agent, run `wolups-agent reset --confirm` on the device before pairing it again.
 
+## NUT hosts
+
+The NUT agent sets up NUT on the machine your UPS is plugged into (Linux with systemd: amd64, arm64 or armv7).
+Choose **Add NUT host** in **UPS** and follow the steps:
+
+1. **Install.** Run the install command on that machine as root, like the device agent.
+2. **Check.** If NUT is missing, **Install NUT** installs it with apt, dnf or pacman.
+3. **Scan.** Find UPS units over USB or SNMP (v1, v2c or v3), or import ones already in `ups.conf`.
+4. **Configure.** Pick the address upsd listens on. The WolUPS server must reach it on port 3493.
+5. **Apply.** The agent writes the config and restarts NUT. WolUPS adds each UPS once it can read it.
+
+The agent only changes lines between `# BEGIN wolups` and `# END wolups` in `ups.conf`, `upsd.conf`, `upsd.users`
+and `upsmon.conf`, sets `MODE=netserver` in `nut.conf`, and keeps a `.wolups-<time>` backup of each file it
+changes. SNMP passwords are written to `ups.conf` only, never stored by WolUPS.
+
+**Manage** in a UPS menu runs instant commands, changes writable settings and removes the UPS from NUT. The host
+card menu adds more UPS, restarts NUT and shows its logs. **NUT service failed** and **NUT service recovered**
+notify you when a driver, upsd or upsmon stops or upsd stops listening.
+
+```bash
+wolups-nut-agent status              # pairing and version
+journalctl -u wolups-nut-agent -f    # logs
+curl -fsSL https://raw.githubusercontent.com/tfourj/WolUPS/main/agent/uninstall-nut.sh | sh    # remove, NUT stays
+```
+
 ## Wake-on-LAN
 
 Wake packets only reach your LAN from the container with `network_mode: host`. Without it, an online agent on the

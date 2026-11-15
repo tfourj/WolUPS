@@ -29,18 +29,21 @@ WolUPS/
 │   │   ├── nut/                     NUT protocol client and parser
 │   │   ├── monitor/                 UPS polling, outages, shutdown and wake rules, presence
 │   │   ├── agents/                  Agent protocol, enrollment, WebSocket hub, release checks
+│   │   ├── nut-hosts/               NUT agent commands, apply and verify, health events
 │   │   ├── wol/                     Magic packets, subnet matching, agent relay
 │   │   ├── notify/                  Channel config, providers, templates, delivery retries
 │   │   └── routes/                  REST API for the UI and public agent endpoints
 │   └── web/                         React UI
 │       ├── components/              Layout, shared components, shadcn/ui primitives
 │       ├── lib/                     API client, auth client, types, formatting, theme
-│       └── pages/                   Dashboard, UPS, Devices, Events, Channels, Settings, auth pages
-├── agent/                           Go agents, install.sh and uninstall.sh
+│       └── pages/                   Dashboard, UPS and NUT hosts, Devices, Events, Channels, Settings, auth
+├── agent/                           Go agents with their install and uninstall scripts
 │   ├── internal/core/               Pairing, connection, signed commands, updates, service file
-│   └── cmd/wolups-agent/            Device agent: shutdown, wake, MAC lookup
+│   ├── internal/nut/                NUT config, scanning, services and health checks
+│   ├── cmd/wolups-agent/            Device agent: shutdown, wake, MAC lookup
+│   └── cmd/wolups-nut-agent/        NUT agent: sets up and manages NUT on a host
 ├── tests/                           bun test suites
 ├── scripts/                         README screenshot generator with demo data
 ├── docs/                            Configuration, build guide, versioning, screenshots and logo
-└── .github/workflows/               build (checks, Docker image, server release), agent release
+└── .github/workflows/               build (checks, Docker image, server release), agent and NUT agent releases
 ```
