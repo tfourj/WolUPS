@@ -130,7 +130,7 @@ agentHub.onAck((command, ack) => {
   if (command.type !== "shutdown") return;
   if (ack.result?.duplicate) return;
   const agent = db.select().from(agents).where(eq(agents.id, command.agentId)).get();
-  const device = agent ? db.select().from(devices).where(eq(devices.id, agent.deviceId)).get() : undefined;
+  const device = agent?.deviceId ? db.select().from(devices).where(eq(devices.id, agent.deviceId)).get() : undefined;
   if (!device) return;
   const args = command.payload as { ups?: string; battery?: number; threshold?: number; reason?: string };
 

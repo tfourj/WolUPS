@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"crypto/ed25519"
@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// Wire protocol v1. Keep in sync with src/server/agents/protocol.ts.
-const protocolVersion = 1
+// ProtocolVersion is wire protocol v1. Keep in sync with src/server/agents/protocol.ts.
+const ProtocolVersion = 1
 
 const maxClockSkew = 10 * time.Minute
 
@@ -31,7 +31,8 @@ type serverMessage struct {
 	Device   string `json:"deviceName,omitempty"`
 }
 
-type command struct {
+// Command is a verified command from the server.
+type Command struct {
 	V         int             `json:"v"`
 	ID        string          `json:"id"`
 	AgentID   string          `json:"agentId"`
@@ -41,16 +42,17 @@ type command struct {
 	ExpiresAt int64           `json:"expiresAt"`
 }
 
-type agentInfo struct {
+// AgentInfo is sent with hello and every status message.
+type AgentInfo struct {
 	Version    string          `json:"version"`
 	Protocol   int             `json:"protocol"`
 	OS         string          `json:"os"`
 	Arch       string          `json:"arch"`
 	Hostname   string          `json:"hostname"`
-	Interfaces []interfaceInfo `json:"interfaces"`
+	Interfaces []InterfaceInfo `json:"interfaces"`
 }
 
-type interfaceInfo struct {
+type InterfaceInfo struct {
 	Name  string   `json:"name"`
 	MAC   string   `json:"mac"`
 	CIDRs []string `json:"cidrs"`
@@ -62,7 +64,7 @@ type helloMsg struct {
 	Nonce   string    `json:"nonce"`
 	TS      int64     `json:"ts"`
 	Sig     string    `json:"sig"`
-	Info    agentInfo `json:"info"`
+	Info    AgentInfo `json:"info"`
 }
 
 type ackMsg struct {
@@ -75,7 +77,14 @@ type ackMsg struct {
 
 type statusMsg struct {
 	Type string    `json:"type"`
-	Info agentInfo `json:"info"`
+	Info AgentInfo `json:"info"`
+}
+
+// progressMsg carries output lines of a running command.
+type progressMsg struct {
+	Type  string   `json:"type"`
+	ID    string   `json:"id"`
+	Lines []string `json:"lines"`
 }
 
 func signHello(key ed25519.PrivateKey, agentID, nonce string, ts int64) string {
@@ -84,7 +93,7 @@ func signHello(key ed25519.PrivateKey, agentID, nonce string, ts int64) string {
 }
 
 // verifyCommand checks the server signature, the target agent, and the validity window.
-func verifyCommand(serverKey ed25519.PublicKey, agentID, payload, sig string, now time.Time) (*command, error) {
+func verifyCommand(serverKey ed25519.PublicKey, agentID, payload, sig string, now time.Time) (*Command, error) {
 	rawSig, err := base64.RawURLEncoding.DecodeString(sig)
 	if err != nil || len(rawSig) != ed25519.SignatureSize {
 		return nil, errors.New("malformed signature")
@@ -92,11 +101,11 @@ func verifyCommand(serverKey ed25519.PublicKey, agentID, payload, sig string, no
 	if !ed25519.Verify(serverKey, []byte(commandMessage(payload)), rawSig) {
 		return nil, errors.New("signature rejected")
 	}
-	var cmd command
+	var cmd Command
 	if err := json.Unmarshal([]byte(payload), &cmd); err != nil {
 		return nil, errors.New("malformed command")
 	}
-	if cmd.V != protocolVersion {
+	if cmd.V != ProtocolVersion {
 		return nil, fmt.Errorf("unsupported command version %d", cmd.V)
 	}
 	if cmd.AgentID != agentID {

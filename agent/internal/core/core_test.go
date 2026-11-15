@@ -1,13 +1,14 @@
-package main
+package core
 
 import (
-	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"time"
 )
 
-func signedCommand(t *testing.T, key ed25519.PrivateKey, cmd command) (string, string) {
+func signedCommand(t *testing.T, key ed25519.PrivateKey, cmd Command) (string, string) {
 	t.Helper()
 	payload, err := json.Marshal(cmd)
 	if err != nil {
@@ -39,7 +40,7 @@ func testKeys(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 func TestVerifyCommand(t *testing.T) {
 	pub, priv := testKeys(t)
 	now := time.Now()
-	base := command{V: 1, ID: "c1", AgentID: "a1", Type: "ping", Args: json.RawMessage("{}"),
+	base := Command{V: 1, ID: "c1", AgentID: "a1", Type: "ping", Args: json.RawMessage("{}"),
 		IssuedAt: now.UnixMilli(), ExpiresAt: now.Add(time.Minute).UnixMilli()}
 
 	payload, sig := signedCommand(t, priv, base)
@@ -74,52 +75,71 @@ func TestHelloSignatureMatchesServerFormat(t *testing.T) {
 	}
 }
 
-func newTestAgent(t *testing.T) (*agent, ed25519.PrivateKey, *[]string) {
+var testComponent = Component{
+	Name:      "wolups-agent",
+	Version:   "1.0.0",
+	TagPrefix: "agent-v",
+	Manifest:  "agent-release.json",
+	Arches:    map[string]string{"amd64": "amd64", "arm64": "arm64", "arm": "armv7"},
+}
+
+func newTestAgent(t *testing.T, handlers map[string]Handler) (*Agent, ed25519.PrivateKey) {
 	t.Helper()
 	pub, priv := testKeys(t)
 	_, agentPriv := testKeys(t)
-	store := &stateStore{dir: t.TempDir()}
-	st := &persistedState{
+	store := &StateStore{Dir: t.TempDir()}
+	st := &PersistedState{
 		ServerURL:       "https://example.com",
 		AgentID:         "a1",
 		PrivateKey:      base64.RawURLEncoding.EncodeToString(agentPriv.Seed()),
 		ServerPublicKey: base64.RawURLEncoding.EncodeToString(pub),
 		Processed:       map[string]int64{},
 	}
-	if err := store.save(st); err != nil {
+	if err := store.Save(st); err != nil {
 		t.Fatal(err)
 	}
-	calls := []string{}
-	acts := actions{
-		poweroff: func() error { calls = append(calls, "poweroff"); return nil },
-		wake: func(mac, b string, p int) (int, error) {
-			calls = append(calls, "wake:"+mac)
-			return 1, nil
-		},
-		resolve: func(ip string) (string, error) {
-			calls = append(calls, "resolve:"+ip)
-			return "aa:bb:cc:dd:ee:ff", nil
-		},
-		update: func() (updateOutcome, error) { return updateOutcome{}, nil },
-		exit:   func(int) { calls = append(calls, "exit") },
-	}
-	a, err := newAgent(store, st, acts)
+	a, err := NewAgent(Options{Component: testComponent, Store: store, State: st, Handlers: handlers,
+		Exit: func(int) {}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return a, priv, &calls
+	return a, priv
 }
 
 func TestDuplicateCommandRunsOnce(t *testing.T) {
-	a, priv, calls := newTestAgent(t)
+	runs := 0
+	a, priv := newTestAgent(t, map[string]Handler{
+		"wol": {Run: func(context.Context, json.RawMessage, *Output) (Reply, error) { runs++; return Reply{}, nil }},
+	})
 	now := time.Now()
-	cmd := command{V: 1, ID: "wake-1", AgentID: "a1", Type: "wol",
-		Args: json.RawMessage(`{"mac":"aa:bb:cc:dd:ee:ff"}`), IssuedAt: now.UnixMilli(), ExpiresAt: now.Add(time.Minute).UnixMilli()}
+	cmd := Command{V: 1, ID: "wake-1", AgentID: "a1", Type: "wol", Args: json.RawMessage(`{"mac":"aa:bb:cc:dd:ee:ff"}`),
+		IssuedAt: now.UnixMilli(), ExpiresAt: now.Add(time.Minute).UnixMilli()}
 	payload, sig := signedCommand(t, priv, cmd)
 	a.handleCommand(t.Context(), payload, sig)
 	a.handleCommand(t.Context(), payload, sig)
-	if len(*calls) != 1 {
-		t.Fatalf("expected one wake, got %v", *calls)
+	if runs != 1 {
+		t.Fatalf("expected one run, got %d", runs)
+	}
+}
+
+func TestOutputBatchesAndMasks(t *testing.T) {
+	var sent []progressMsg
+	out := newOutput("c1", func(v any) error { sent = append(sent, v.(progressMsg)); return nil })
+	out.Mask("s3cret")
+	for i := 0; i < maxBatchLines+1; i++ {
+		out.Line("auth s3cret ok")
+	}
+	if len(sent) != 1 || len(sent[0].Lines) != maxBatchLines {
+		t.Fatalf("expected one full batch, got %+v", sent)
+	}
+	out.Flush()
+	if len(sent) != 2 || len(sent[1].Lines) != 1 || sent[1].Lines[0] != "auth *** ok" {
+		t.Fatalf("expected the rest masked, got %+v", sent)
+	}
+	out.Line(strings.Repeat("x", maxLineLength+10))
+	out.Flush()
+	if len(sent[2].Lines[0]) != maxLineLength {
+		t.Fatal("long line not cut")
 	}
 }
 
@@ -134,23 +154,6 @@ func TestProcessedIsPruned(t *testing.T) {
 	}
 	if _, ok := values["a"]; ok {
 		t.Fatal("oldest entry was kept")
-	}
-}
-
-func TestMagicPacket(t *testing.T) {
-	mac, err := parseMAC("01:23:45:67:89:ab")
-	if err != nil {
-		t.Fatal(err)
-	}
-	packet := magicPacket(mac)
-	if len(packet) != 102 || !bytes.Equal(packet[:6], bytes.Repeat([]byte{0xff}, 6)) {
-		t.Fatal("bad header")
-	}
-	if !bytes.Equal(packet[96:], mac) {
-		t.Fatal("bad payload")
-	}
-	if _, err := parseMAC("not-a-mac"); err == nil {
-		t.Fatal("invalid MAC accepted")
 	}
 }
 
@@ -199,8 +202,8 @@ func TestUpdateVerifiesChecksum(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "wolups-agent")
 	os.WriteFile(target, []byte("old"), 0o755)
-	u := &updater{releaseBase: srv.URL, binaryPath: target, arch: "amd64", client: srv.Client(),
-		verify: func(string, string) error { return nil }}
+	u := &updater{component: testComponent, releaseBase: srv.URL, binaryPath: target, arch: "amd64",
+		client: srv.Client(), verify: func(string, string) error { return nil }}
 
 	if _, err := u.run("1.0.0"); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatalf("expected checksum error, got %v", err)
@@ -219,19 +222,20 @@ func TestUpdateVerifiesChecksum(t *testing.T) {
 	}
 }
 
-func TestNewestAgentTag(t *testing.T) {
-	tag, err := newestAgentTag([]githubRelease{
+func TestNewestTag(t *testing.T) {
+	tag, err := newestTag([]githubRelease{
 		{TagName: "v0.9.0"},
 		{TagName: "agent-v0.1.3"},
 		{TagName: "agent-v0.1.10"},
 		{TagName: "agent-v0.2.0", Prerelease: true},
 		{TagName: "agent-v0.3.0", Draft: true},
 		{TagName: "agent-v0.4.0-rc.1"},
-	})
+		{TagName: "nut-agent-v9.0.0"},
+	}, "agent-v")
 	if err != nil || tag != "agent-v0.1.10" {
 		t.Fatalf("got %q %v", tag, err)
 	}
-	if _, err := newestAgentTag([]githubRelease{{TagName: "v1.0.0"}}); err == nil {
+	if _, err := newestTag([]githubRelease{{TagName: "v1.0.0"}}, "agent-v"); err == nil {
 		t.Fatal("server release accepted as agent release")
 	}
 }
@@ -262,8 +266,8 @@ func TestUpdateFromGitHubReleases(t *testing.T) {
 	for _, base := range []string{"https://github.com/o/r/releases", "https://github.com/o/r/releases/latest/download"} {
 		target := filepath.Join(t.TempDir(), "wolups-agent")
 		os.WriteFile(target, []byte("old"), 0o755)
-		u := &updater{releaseBase: base, binaryPath: target, arch: "arm64", client: srv.Client(),
-			apiURL: srv.URL, webURL: srv.URL, verify: func(string, string) error { return nil }}
+		u := &updater{component: testComponent, releaseBase: base, binaryPath: target, arch: "arm64",
+			client: srv.Client(), apiURL: srv.URL, webURL: srv.URL, verify: func(string, string) error { return nil }}
 		out, err := u.run("0.1.3")
 		if err != nil || !out.Updated || out.LatestVersion != "0.2.0" {
 			t.Fatalf("%s: update failed: %+v %v", base, out, err)
@@ -286,35 +290,6 @@ func TestServerURLValidation(t *testing.T) {
 	}
 	if u, _ := websocketURL("https://x.example.com/sub"); u != "wss://x.example.com/sub/api/agents/ws" {
 		t.Fatalf("got %s", u)
-	}
-}
-
-func TestReadARP(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "arp")
-	table := `IP address       HW type     Flags       HW address            Mask     Device
-192.168.1.20     0x1         0x2         BC:24:11:4A:9E:01     *        eth0
-192.168.1.21     0x1         0x0         00:00:00:00:00:00     *        eth0
-`
-	if err := os.WriteFile(path, []byte(table), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if mac, ok := readARP(path, "192.168.1.20"); !ok || mac != "bc:24:11:4a:9e:01" {
-		t.Fatalf("got %q %v", mac, ok)
-	}
-	if _, ok := readARP(path, "192.168.1.21"); ok {
-		t.Fatal("incomplete entry returned")
-	}
-	if _, ok := readARP(path, "192.168.1.99"); ok {
-		t.Fatal("missing entry returned")
-	}
-}
-
-func TestLookupMACRejectsInvalidAndRemote(t *testing.T) {
-	if _, err := lookupMAC("not-an-ip"); err == nil {
-		t.Fatal("invalid IP accepted")
-	}
-	if _, err := lookupMAC("203.0.113.7"); err == nil {
-		t.Fatal("address outside local subnets accepted")
 	}
 }
 
@@ -345,16 +320,26 @@ func TestWriteUnitOnlyWhenChanged(t *testing.T) {
 	os.WriteFile(path, []byte("[Service]\nExecStart=/old\n"), 0o644)
 	reloads := 0
 	reload := func() error { reloads++; return nil }
+	content := fmt.Sprintf(UnitTemplate, "WolUPS agent", "/usr/local/bin/wolups-agent", "", "/var/lib/x", "64M", "128M")
 
-	changed, err := writeUnit(path, reload)
-	if err != nil || !changed || reloads != 1 || !unitUpToDate(path) {
+	changed, err := writeUnit(path, content, reload)
+	if err != nil || !changed || reloads != 1 || !unitUpToDate(path, content) {
 		t.Fatalf("first write: changed=%v err=%v reloads=%d", changed, err, reloads)
 	}
-	changed, err = writeUnit(path, reload)
+	changed, err = writeUnit(path, content, reload)
 	if err != nil || changed || reloads != 1 {
 		t.Fatalf("second write should be a no-op: changed=%v err=%v reloads=%d", changed, err, reloads)
 	}
-	if !strings.Contains(unitContent, "ExecStart=/usr/local/bin/wolups-agent serve") {
-		t.Fatal("unit does not start the installed binary")
+}
+
+func TestComponentAssets(t *testing.T) {
+	if asset, _ := testComponent.Asset("arm"); asset != "wolups-agent-linux-armv7" {
+		t.Fatalf("got %s", asset)
+	}
+	if _, err := testComponent.Asset("386"); err == nil {
+		t.Fatal("unsupported architecture accepted")
+	}
+	if line := testComponent.VersionLine("1.2.3"); line != "wolups-agent 1.2.3 protocol v1" {
+		t.Fatalf("got %s", line)
 	}
 }

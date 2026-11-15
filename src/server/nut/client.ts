@@ -1,5 +1,17 @@
 import { Socket } from "node:net";
-import { parseUpsList, parseVarList, toSnapshot, type UpsSnapshot, type UpsVars } from "./parse";
+import {
+  parseCmdList,
+  parseEnumList,
+  parseRangeList,
+  parseRwList,
+  parseType,
+  parseUpsList,
+  parseVarList,
+  toSnapshot,
+  type UpsSnapshot,
+  type UpsVars,
+  type WritableType,
+} from "./parse";
 
 export type NutTarget = {
   host: string;
@@ -151,4 +163,28 @@ export async function fetchUpsSnapshot(target: NutTarget, upsName: string): Prom
 
 export async function listUps(target: NutTarget) {
   return withSession(target, async (s) => parseUpsList(await s.list("LIST UPS")));
+}
+
+export type WritableVar = {
+  name: string;
+  value: string;
+  type: WritableType;
+  options?: string[];
+  ranges?: { min: number; max: number }[];
+};
+
+/** Instant commands and writable variables of a UPS. Listing needs no login. */
+export async function fetchUpsControls(target: NutTarget, upsName: string) {
+  return withSession(target, async (s) => {
+    const commands = parseCmdList(await s.list(`LIST CMD ${upsName}`));
+    const writable: WritableVar[] = [];
+    for (const [name, value] of Object.entries(parseRwList(await s.list(`LIST RW ${upsName}`)))) {
+      const type = parseType(await s.simple(`GET TYPE ${upsName} ${name}`));
+      const entry: WritableVar = { name, value, type };
+      if (type.kind === "enum") entry.options = parseEnumList(await s.list(`LIST ENUM ${upsName} ${name}`));
+      if (type.kind === "range") entry.ranges = parseRangeList(await s.list(`LIST RANGE ${upsName} ${name}`));
+      writable.push(entry);
+    }
+    return { commands, writable };
+  });
 }

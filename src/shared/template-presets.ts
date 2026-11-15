@@ -99,6 +99,18 @@ const EVENTS: Record<EventType, EventSpec> = {
   },
   agent_updated: { icon: "✨", summary: "Agent updated", key: ["device", "version"], more: ["time"] },
   agent_update_failed: { icon: "⚠️", summary: "Agent update failed", key: ["device", "error"], more: ["time"] },
+  nut_service_failed: {
+    icon: "🧯",
+    summary: "NUT service failed",
+    key: ["device", "ups", "error"],
+    more: ["time"],
+  },
+  nut_service_recovered: {
+    icon: "🟢",
+    summary: "NUT service recovered",
+    key: ["device", "ups"],
+    more: ["time"],
+  },
   login: { icon: "🔐", summary: "{message}", key: [], more: ["time"] },
   test: {
     icon: "🔔",

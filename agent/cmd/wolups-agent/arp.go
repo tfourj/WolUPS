@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/tfourj/WolUPS/agent/internal/core"
 )
 
 const arpTablePath = "/proc/net/arp"
@@ -20,7 +22,7 @@ func lookupMAC(ipValue string) (string, error) {
 		return "", errors.New("invalid IPv4 address")
 	}
 	onLink := false
-	for _, iface := range collectInterfaces() {
+	for _, iface := range core.CollectInterfaces() {
 		for _, cidr := range iface.CIDRs {
 			own, network, err := net.ParseCIDR(cidr)
 			if err != nil {

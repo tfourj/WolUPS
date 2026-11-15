@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/tfourj/WolUPS/agent/internal/core"
 )
 
 func magicPacket(mac net.HardwareAddr) []byte {
@@ -29,7 +31,7 @@ func parseMAC(value string) (net.HardwareAddr, error) {
 // broadcastAddrs returns the directed broadcast address of each IPv4 network the agent sits on.
 func broadcastAddrs() []string {
 	out := []string{}
-	for _, iface := range collectInterfaces() {
+	for _, iface := range core.CollectInterfaces() {
 		for _, cidr := range iface.CIDRs {
 			ip, network, err := net.ParseCIDR(cidr)
 			if err != nil || ip.To4() == nil {

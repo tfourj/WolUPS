@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/client";
-import { agents, devices, enrollmentTokens } from "../db/schema";
+import { agents, devices, enrollmentTokens, nutHosts, type AgentKind } from "../db/schema";
 import { importPublicRaw } from "../crypto/signing";
 import { randomToken, sha256Hex } from "../crypto/secretbox";
 import { serverSigningKey } from "../secrets";
@@ -8,15 +8,24 @@ import type { AgentInfo } from "./protocol";
 
 export const ENROLLMENT_TTL_MS = 15 * 60 * 1000;
 
-/** Create a one-time enrollment token for a device. Older unused tokens for the device are revoked. */
-export function createEnrollmentToken(deviceId: string, now = new Date()) {
+/** What a token pairs an agent with. */
+export type EnrollmentTarget = { deviceId: string } | { nutHostId: string };
+
+function targetFilter(target: EnrollmentTarget) {
+  return "deviceId" in target
+    ? eq(enrollmentTokens.deviceId, target.deviceId)
+    : eq(enrollmentTokens.nutHostId, target.nutHostId);
+}
+
+/** Create a one-time enrollment token for a device or NUT host. Older unused tokens for it are revoked. */
+export function createEnrollmentToken(target: EnrollmentTarget, now = new Date()) {
   const token = randomToken(32);
   const expiresAt = new Date(now.getTime() + ENROLLMENT_TTL_MS);
   db.transaction((tx) => {
     tx.delete(enrollmentTokens)
-      .where(and(eq(enrollmentTokens.deviceId, deviceId), isNull(enrollmentTokens.usedAt)))
+      .where(and(targetFilter(target), isNull(enrollmentTokens.usedAt)))
       .run();
-    tx.insert(enrollmentTokens).values({ deviceId, tokenHash: sha256Hex(token), expiresAt }).run();
+    tx.insert(enrollmentTokens).values({ ...target, tokenHash: sha256Hex(token), expiresAt }).run();
   });
   return { token, expiresAt };
 }
@@ -25,7 +34,11 @@ export class EnrollmentError extends Error {}
 
 export type EnrollResult = {
   agentId: string;
-  deviceId: string;
+  kind: AgentKind;
+  /** The device id for device agents. */
+  deviceId: string | null;
+  nutHostId: string | null;
+  /** Name of the device or NUT host. */
   deviceName: string;
   serverPublicKey: string;
   replaced: boolean;
@@ -42,14 +55,35 @@ export function redeemEnrollment(token: string, publicKey: string, info: AgentIn
   return db.transaction((tx) => {
     const row = tx.select().from(enrollmentTokens).where(eq(enrollmentTokens.tokenHash, sha256Hex(token))).get();
     if (!row || row.expiresAt.getTime() < now.getTime()) throw new EnrollmentError("invalid or expired token");
-    const device = tx.select().from(devices).where(eq(devices.id, row.deviceId)).get();
-    if (!device) throw new EnrollmentError("device no longer exists");
-    const existing = tx.select().from(agents).where(eq(agents.deviceId, device.id)).get();
+
+    let owner: { kind: AgentKind; deviceId: string | null; nutHostId: string | null; name: string };
+    if (row.nutHostId) {
+      const host = tx.select().from(nutHosts).where(eq(nutHosts.id, row.nutHostId)).get();
+      if (!host) throw new EnrollmentError("NUT host no longer exists");
+      owner = { kind: "nut", deviceId: null, nutHostId: host.id, name: host.name };
+    } else {
+      const device = row.deviceId ? tx.select().from(devices).where(eq(devices.id, row.deviceId)).get() : undefined;
+      if (!device) throw new EnrollmentError("device no longer exists");
+      owner = { kind: "device", deviceId: device.id, nutHostId: null, name: device.name };
+    }
+    const existing = tx
+      .select()
+      .from(agents)
+      .where(owner.nutHostId ? eq(agents.nutHostId, owner.nutHostId) : eq(agents.deviceId, owner.deviceId!))
+      .get();
+    const result = (agentId: string, replaced: boolean, retried: boolean): EnrollResult => ({
+      agentId,
+      kind: owner.kind,
+      deviceId: owner.deviceId,
+      nutHostId: owner.nutHostId,
+      deviceName: owner.name,
+      serverPublicKey,
+      replaced,
+      retried,
+    });
 
     if (row.usedAt) {
-      if (existing && existing.publicKey === publicKey) {
-        return { agentId: existing.id, deviceId: device.id, deviceName: device.name, serverPublicKey, replaced: false, retried: true };
-      }
+      if (existing && existing.publicKey === publicKey) return result(existing.id, false, true);
       throw new EnrollmentError("token already used");
     }
 
@@ -58,7 +92,9 @@ export function redeemEnrollment(token: string, publicKey: string, info: AgentIn
     const agent = tx
       .insert(agents)
       .values({
-        deviceId: device.id,
+        kind: owner.kind,
+        deviceId: owner.deviceId,
+        nutHostId: owner.nutHostId,
         publicKey,
         version: info.version,
         os: info.os,
@@ -71,6 +107,6 @@ export function redeemEnrollment(token: string, publicKey: string, info: AgentIn
       })
       .returning()
       .get();
-    return { agentId: agent.id, deviceId: device.id, deviceName: device.name, serverPublicKey, replaced: !!existing, retried: false };
+    return result(agent.id, !!existing, false);
   });
 }

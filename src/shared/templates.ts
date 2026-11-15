@@ -151,6 +151,16 @@ const SAMPLES: Record<EventType, Sample> = {
     message: "Agent on nas could not update: checksum mismatch",
     vars: { ...AGENT_VARS, error: "checksum mismatch" },
   },
+  nut_service_failed: {
+    title: "NUT driver stopped on pi",
+    message: "The NUT driver for Rack UPS has stopped on pi",
+    vars: { ...AGENT_VARS, device: "pi", ups: "Rack UPS", version: "", error: "driver for rack has stopped" },
+  },
+  nut_service_recovered: {
+    title: "NUT driver running again on pi",
+    message: "The NUT driver for Rack UPS is running again on pi",
+    vars: { ...AGENT_VARS, device: "pi", ups: "Rack UPS", version: "" },
+  },
   login: {
     title: "New sign-in to WolUPS",
     message: "admin@example.com signed in with password and authenticator app from Chrome on macOS (203.0.113.7)",

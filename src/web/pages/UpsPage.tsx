@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BatteryCharging, ListTree, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  BatteryCharging,
+  ListTree,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Server,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import { BatteryBar, EmptyState, PageHeader, ToneBadge } from "@/components/common";
 import { ConfirmAction } from "@/components/confirm";
 import { Button } from "@/components/ui/button";
@@ -18,7 +27,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api } from "@/lib/api";
 import { formatRuntime, timeAgo, upsState } from "@/lib/format";
 import { useAction } from "@/lib/mutations";
-import type { Ups } from "@/lib/types";
+import type { NutHost, Ups } from "@/lib/types";
+import { NutHostCards } from "./NutHostCards";
+import { NutHostWizard, type WizardStep } from "./NutHostWizard";
+import { NutManageDialog } from "./NutManageDialog";
 import { UpsDialog } from "./UpsDialog";
 
 function VarsDialog({ ups, onClose }: { ups: Ups | null; onClose: () => void }) {
@@ -65,6 +77,14 @@ export function UpsPage() {
   const [editing, setEditing] = useState<Ups | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [varsFor, setVarsFor] = useState<Ups | null>(null);
+  const [managing, setManaging] = useState<Ups | null>(null);
+  const [wizard, setWizard] = useState<{ host: NutHost | null; step: WizardStep } | null>(null);
+  const { data: hosts = [] } = useQuery({
+    queryKey: ["nut-hosts"],
+    queryFn: () => api.get<NutHost[]>("/nut-hosts"),
+    refetchInterval: 5_000,
+  });
+  const hostOf = (u: Ups | null) => hosts.find((h) => h.id === u?.nutHostId) ?? null;
 
   const toggle = useAction((u: Ups) => api.patch(`/ups/${u.id}`, { enabled: !u.enabled }), {
     invalidate: [["ups"]],
@@ -82,15 +102,26 @@ export function UpsPage() {
   return (
     <>
       <PageHeader title="UPS">
+        <Button variant="outline" onClick={() => setWizard({ host: null, step: "install" })}>
+          <Server />
+          Add NUT host
+        </Button>
         <Button onClick={() => openDialog()}>
           <Plus />
           Add UPS
         </Button>
       </PageHeader>
 
+      {hosts.length > 0 && <NutHostCards hosts={hosts} onOpenWizard={(host, step) => setWizard({ host, step })} />}
+
       {!isPending && data.length === 0 ? (
         <EmptyState icon={BatteryCharging} title="No UPS configured">
-          <Button onClick={() => openDialog()}>Add UPS</Button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button variant="outline" onClick={() => setWizard({ host: null, step: "install" })}>
+              Add NUT host
+            </Button>
+            <Button onClick={() => openDialog()}>Add UPS</Button>
+          </div>
         </EmptyState>
       ) : (
         <Card className="py-0">
@@ -156,6 +187,12 @@ export function UpsPage() {
                             <Pencil />
                             Edit
                           </DropdownMenuItem>
+                          {u.nutHostId && hostOf(u) && (
+                            <DropdownMenuItem onClick={() => setManaging(u)}>
+                              <SlidersHorizontal />
+                              Manage
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => setVarsFor(u)}>
                             <ListTree />
                             Show variables
@@ -186,6 +223,13 @@ export function UpsPage() {
 
       <UpsDialog open={dialogOpen} onOpenChange={setDialogOpen} ups={editing} />
       <VarsDialog ups={varsFor} onClose={() => setVarsFor(null)} />
+      <NutManageDialog ups={managing} host={hostOf(managing)} onClose={() => setManaging(null)} />
+      <NutHostWizard
+        open={!!wizard}
+        host={wizard?.host ?? null}
+        startAt={wizard?.step}
+        onClose={() => setWizard(null)}
+      />
     </>
   );
 }

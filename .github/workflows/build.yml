@@ -41,7 +41,7 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - name: Check install scripts
-        run: sh -n install.sh && sh -n uninstall.sh
+        run: for f in install.sh uninstall.sh install-nut.sh uninstall-nut.sh; do sh -n "$f"; done
 
   image:
     name: Docker image

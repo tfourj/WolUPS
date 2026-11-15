@@ -20,6 +20,7 @@
 - Monitors any number of UPS units through NUT
 - Per-device shutdown at a battery or runtime threshold
 - Lightweight Linux agent with one-line install, no open ports or certificates
+- NUT agent that installs NUT, finds your UPS over USB or SNMP and sets it up from a guided wizard
 - Automatic agent updates
 - Wake-on-LAN after power returns, sent by the server or relayed through an agent
 - Notifications for power loss, shutdowns, wakes and agent updates

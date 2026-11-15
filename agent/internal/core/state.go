@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"crypto/ed25519"
@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	defaultStateDir    = "/var/lib/wolups-agent"
-	defaultReleaseBase = "https://github.com/tfourj/WolUPS/releases"
+	// DefaultReleaseBase is the releases page agents update from. Each component picks its own tag prefix there.
+	DefaultReleaseBase = "https://github.com/tfourj/WolUPS/releases"
 	maxProcessed       = 500
 )
 
-// persistedState is everything the agent needs to reconnect. It is stored root-only (0600).
-type persistedState struct {
+// PersistedState is everything the agent needs to reconnect. It is stored root-only (0600).
+type PersistedState struct {
 	ServerURL       string           `json:"server_url"`
 	AgentID         string           `json:"agent_id"`
 	PrivateKey      string           `json:"private_key"`       // base64url Ed25519 seed
@@ -29,7 +29,7 @@ type persistedState struct {
 	Processed       map[string]int64 `json:"processed,omitempty"`
 }
 
-func (s *persistedState) privateKey() (ed25519.PrivateKey, error) {
+func (s *PersistedState) privateKey() (ed25519.PrivateKey, error) {
 	seed, err := base64.RawURLEncoding.DecodeString(s.PrivateKey)
 	if err != nil || len(seed) != ed25519.SeedSize {
 		return nil, errors.New("stored private key is invalid")
@@ -37,7 +37,7 @@ func (s *persistedState) privateKey() (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-func (s *persistedState) serverKey() (ed25519.PublicKey, error) {
+func (s *PersistedState) serverKey() (ed25519.PublicKey, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s.ServerPublicKey)
 	if err != nil || len(raw) != ed25519.PublicKeySize {
 		return nil, errors.New("stored server public key is invalid")
@@ -45,30 +45,32 @@ func (s *persistedState) serverKey() (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(raw), nil
 }
 
-type stateStore struct {
-	dir string
+// StateStore keeps the pairing state in Dir.
+type StateStore struct {
+	Dir string
 	mu  sync.Mutex
 }
 
-var errNotPaired = errors.New("agent is not paired")
+// ErrNotPaired means there is no state file yet.
+var ErrNotPaired = errors.New("agent is not paired")
 
-func (s *stateStore) path() string { return filepath.Join(s.dir, "state.json") }
+func (s *StateStore) path() string { return filepath.Join(s.Dir, "state.json") }
 
-func (s *stateStore) load() (*persistedState, error) {
+func (s *StateStore) Load() (*PersistedState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loadLocked()
 }
 
-func (s *stateStore) loadLocked() (*persistedState, error) {
+func (s *StateStore) loadLocked() (*PersistedState, error) {
 	data, err := os.ReadFile(s.path())
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, errNotPaired
+		return nil, ErrNotPaired
 	}
 	if err != nil {
 		return nil, err
 	}
-	var state persistedState
+	var state PersistedState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
@@ -78,17 +80,17 @@ func (s *stateStore) loadLocked() (*persistedState, error) {
 	return &state, nil
 }
 
-func (s *stateStore) save(state *persistedState) error {
+func (s *StateStore) Save(state *PersistedState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.saveLocked(state)
 }
 
-func (s *stateStore) saveLocked(state *persistedState) error {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+func (s *StateStore) saveLocked(state *PersistedState) error {
+	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(s.dir, 0o700); err != nil {
+	if err := os.Chmod(s.Dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -102,7 +104,7 @@ func (s *stateStore) saveLocked(state *persistedState) error {
 	return os.Rename(tmp, s.path())
 }
 
-func (s *stateStore) remove() error {
+func (s *StateStore) Remove() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	err := os.Remove(s.path())
@@ -114,7 +116,7 @@ func (s *stateStore) remove() error {
 
 // markProcessed records a command ID. It returns false when the ID was already seen,
 // so a resent shutdown never schedules a second poweroff.
-func (s *stateStore) markProcessed(id string, now time.Time) (bool, error) {
+func (s *StateStore) markProcessed(id string, now time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked()

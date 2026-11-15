@@ -36,7 +36,7 @@ jobs:
           mkdir -p ../dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/wolups-agent-linux-$arch .
+              -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/wolups-agent-linux-$arch ./cmd/wolups-agent
           done
           ../dist/wolups-agent-linux-amd64 version
       - name: Package release files
@@ -52,7 +52,8 @@ jobs:
           # Agent changes since the previous agent release, or since the last combined release before the split.
           prev="$(git tag --list 'agent-v[0-9]*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
           [ -n "$prev" ] || prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD)"
-          changes="$(git log --no-merges --format='- %s (%h)' "$prev..HEAD" -- agent)"
+          changes="$(git log --no-merges --format='- %s (%h)' "$prev..HEAD" -- agent \
+            ':!agent/cmd/wolups-nut-agent' ':!agent/internal/nut' ':!agent/install-nut.sh' ':!agent/uninstall-nut.sh')"
           {
             echo "## Agent changes since $prev"
             echo

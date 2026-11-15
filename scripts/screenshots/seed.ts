@@ -1,5 +1,5 @@
 // Fills a fresh WolUPS instance with made-up demo data for the README screenshots, then keeps
-// running to serve two fake NUT UPS units and four connected demo agents.
+// running to serve two fake NUT UPS units, four connected demo agents and a demo NUT agent.
 // Runs inside the app container started by scripts/screenshots.sh, with the server on localhost:4321.
 import { Database } from "bun:sqlite";
 import { generateKeyPairSync, sign } from "node:crypto";
@@ -142,21 +142,18 @@ const DEVICES: DemoDevice[] = [
 
 // --- Demo agents: real enrollment, then a WebSocket that answers like the Go agent ---
 
-const deviceIds: Record<string, string> = {};
-for (const d of DEVICES) {
-  const device = await api<{ id: string }>("POST", "/devices", { name: d.name, ...d.body });
-  deviceIds[d.name] = device.id;
-  if (!d.agent) continue;
+type AgentInfo = {
+  version: string;
+  protocol: number;
+  os: string;
+  arch: string;
+  hostname: string;
+  interfaces: { name: string; mac: string; cidrs: string[] }[];
+};
+
+/** Pair a demo agent with an enrollment token and keep it connected. `onWelcome` runs once it is accepted. */
+async function connectAgent(token: string, info: AgentInfo, onWelcome?: (ws: WebSocket) => void) {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
-  const info = {
-    version: "1.2.0",
-    protocol: 1,
-    os: "linux",
-    arch: d.agent.arch,
-    hostname: d.agent.hostname,
-    interfaces: [{ name: "eth0", mac: String(d.body.mac ?? "dc:a6:32:00:00:05"), cidrs: [`${d.body.host}/24`] }],
-  };
-  const { token } = await api<{ token: string }>("POST", `/devices/${device.id}/enroll`);
   const enroll = await fetch(`${BASE}/api/agents/enroll`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -171,11 +168,56 @@ for (const d of DEVICES) {
       const message = `wolups-hello:v1\n${agentId}\n${data.nonce}\n${ts}`;
       const sig = sign(null, Buffer.from(message), privateKey).toString("base64url");
       ws.send(JSON.stringify({ type: "hello", agentId, nonce: data.nonce, ts, sig, info }));
+    } else if (data.type === "welcome") {
+      onWelcome?.(ws);
     } else if (data.type === "command") {
       ws.send(JSON.stringify({ type: "ack", id: JSON.parse(data.payload).id, ok: true }));
     }
   };
 }
+
+const deviceIds: Record<string, string> = {};
+for (const d of DEVICES) {
+  const device = await api<{ id: string }>("POST", "/devices", { name: d.name, ...d.body });
+  deviceIds[d.name] = device.id;
+  if (!d.agent) continue;
+  const info = {
+    version: "1.2.0",
+    protocol: 1,
+    os: "linux",
+    arch: d.agent.arch,
+    hostname: d.agent.hostname,
+    interfaces: [{ name: "eth0", mac: String(d.body.mac ?? "dc:a6:32:00:00:05"), cidrs: [`${d.body.host}/24`] }],
+  };
+  const { token } = await api<{ token: string }>("POST", `/devices/${device.id}/enroll`);
+  await connectAgent(token, info);
+}
+
+// A NUT host whose agent manages the Office UPS and reports healthy NUT services.
+const nutHost = await api<{ host: { id: string }; enrollment: { token: string } }>("POST", "/nut-hosts", {
+  name: "ups-pi",
+});
+await connectAgent(
+  nutHost.enrollment.token,
+  {
+    version: "0.1.0",
+    protocol: 1,
+    os: "linux",
+    arch: "arm64",
+    hostname: "ups-pi",
+    interfaces: [{ name: "eth0", mac: "dc:a6:32:00:00:06", cidrs: ["192.168.1.6/24"] }],
+  },
+  (ws) =>
+    ws.send(
+      JSON.stringify({
+        type: "nut_status",
+        upsd: "running",
+        upsmon: "missing",
+        listening: true,
+        drivers: [{ ups: "ups", state: "running" }],
+      }),
+    ),
+);
 
 await api("POST", "/channels", {
   name: "Phone",
@@ -210,6 +252,13 @@ await Bun.sleep(2000);
 // --- History: events, deliveries, outages and battery samples ---
 
 const db = new Database(`${DATA_DIR}/wolups.db`);
+// What the setup wizard would have recorded for the NUT host.
+db.run(
+  `update nut_hosts set os = ?, package_manager = 'apt', nut_version = '2.8.2', config_dir = '/etc/nut',
+   listen_address = ? where id = ?`,
+  ["Raspberry Pi OS (Debian 12)", "192.168.1.6", nutHost.host.id],
+);
+db.run("update ups set nut_host_id = ? where id = ?", [nutHost.host.id, office.id]);
 db.run("delete from events");
 const channels = db.query("select id, name from channels").all() as { id: string; name: string }[];
 const channelId = (name: string) => channels.find((c) => c.name === name)!.id;

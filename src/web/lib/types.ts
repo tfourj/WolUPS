@@ -15,6 +15,8 @@ export type Ups = {
   id: string;
   name: string;
   description: string | null;
+  /** Set when a NUT host's agent manages this UPS. */
+  nutHostId: string | null;
   host: string;
   port: number;
   upsName: string;
@@ -50,7 +52,9 @@ export type Sample = { ts: string; battery: number | null; runtime: number | nul
 
 export type Agent = {
   id: string;
-  deviceId: string;
+  kind: "device" | "nut";
+  deviceId: string | null;
+  nutHostId: string | null;
   version: string | null;
   os: string | null;
   arch: string | null;
@@ -169,7 +173,91 @@ export type SystemInfo = {
   timezone: string;
   latestAgent: { version: string; url: string; checkedAt: number } | null;
   latestAgentError: string | null;
+  latestNutAgent: { version: string; url: string; checkedAt: number } | null;
+  latestNutAgentError: string | null;
 };
+
+export type NutServices = {
+  upsd: string;
+  upsmon: string;
+  listening: boolean;
+  drivers: { ups: string; state: string }[];
+  reportedAt?: number;
+};
+
+export type NutHost = {
+  id: string;
+  name: string;
+  online: boolean;
+  lastSeenAt: string | null;
+  os: string | null;
+  packageManager: string | null;
+  nutVersion: string | null;
+  configDir: string | null;
+  listenAddress: string | null;
+  localShutdown: boolean;
+  services: NutServices | null;
+  problems: string[] | null;
+  agent: Agent | null;
+  interfaces: { name: string; mac: string; cidrs: string[] }[];
+  ups: { id: string; name: string; upsName: string }[];
+};
+
+export type Enrollment = {
+  token: string;
+  expiresAt: string;
+  serverUrl: string;
+  insecure: boolean;
+  command: string;
+  uninstallCommand: string;
+};
+
+export type ConfSection = { name: string; driver: string; port: string; desc?: string; extra?: Record<string, string> };
+
+export type NutDetect = {
+  os: string;
+  packageManager: string;
+  nutVersion: string;
+  configDir: string;
+  services: { upsd: string; upsmon: string };
+  existing: ConfSection[];
+  managed: ConfSection[];
+  config: { mode: string; listen: string[]; users: string[]; monitors: string[] };
+  /** UPS entries added by hand for this host that setup takes over. */
+  adopt: { id: string; name: string; upsName: string; host: string }[];
+};
+
+export type FileChange = { path: string; before: string; after: string };
+
+export type ScanDevice = {
+  driver: string;
+  port: string;
+  vendor?: string;
+  product?: string;
+  serial?: string;
+  vendorid?: string;
+  productid?: string;
+  bus?: string;
+  desc?: string;
+  extra?: Record<string, string>;
+};
+
+export type CommandState = {
+  status: "running" | "done" | "failed";
+  lines: string[];
+  result?: Record<string, unknown>;
+  error?: string | null;
+};
+
+export type WritableVar = {
+  name: string;
+  value: string;
+  type: { kind: "string"; maxLength: number | null } | { kind: "number" } | { kind: "enum" } | { kind: "range" };
+  options?: string[];
+  ranges?: { min: number; max: number }[];
+};
+
+export type UpsControls = { commands: string[]; writable: WritableVar[] };
 
 export type SecurityStatus = { twoFactorEnabled: boolean; loginChannelIds: string[] };
 

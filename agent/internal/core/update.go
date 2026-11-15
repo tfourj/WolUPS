@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"bufio"
@@ -15,17 +15,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	manifestName     = "agent-release.json"
 	maxMetadataBytes = 1 << 20
 	maxAgentBytes    = 128 << 20
-	agentTagPrefix   = "agent-v"
 	githubAPI        = "https://api.github.com"
 	githubWeb        = "https://github.com"
 )
@@ -43,15 +40,17 @@ type releaseManifest struct {
 	ProtocolVersion int    `json:"protocol_version"`
 }
 
-type updateOutcome struct {
+// UpdateOutcome says whether a newer release was installed.
+type UpdateOutcome struct {
 	Updated       bool
 	LatestVersion string
 }
 
 // updater installs a newer agent from the release source saved at enrollment: a GitHub releases page, where it
-// picks the newest agent-vX.Y.Z release, or a fixed HTTPS directory. The server can only trigger it; it never
-// supplies a URL, path or command.
+// picks the newest release with the component's tag prefix, or a fixed HTTPS directory. The server can only
+// trigger it; it never supplies a URL, path or command.
 type updater struct {
+	component   Component
 	releaseBase string
 	binaryPath  string
 	arch        string
@@ -92,14 +91,14 @@ type githubRelease struct {
 	Prerelease bool   `json:"prerelease"`
 }
 
-// newestAgentTag returns the highest stable agent-vX.Y.Z tag among the repository's releases.
-func newestAgentTag(releases []githubRelease) (string, error) {
+// newestTag returns the highest stable <prefix>X.Y.Z tag among the repository's releases.
+func newestTag(releases []githubRelease, prefix string) (string, error) {
 	best, bestTag := [3]int{}, ""
 	for _, r := range releases {
-		if r.Draft || r.Prerelease || !strings.HasPrefix(r.TagName, agentTagPrefix) {
+		if r.Draft || r.Prerelease || !strings.HasPrefix(r.TagName, prefix) {
 			continue
 		}
-		v, err := parseStable(strings.TrimPrefix(r.TagName, agentTagPrefix))
+		v, err := parseStable(strings.TrimPrefix(r.TagName, prefix))
 		if err != nil {
 			continue
 		}
@@ -108,7 +107,7 @@ func newestAgentTag(releases []githubRelease) (string, error) {
 		}
 	}
 	if bestTag == "" {
-		return "", errors.New("no agent release found")
+		return "", fmt.Errorf("no %sX.Y.Z release found", prefix)
 	}
 	return bestTag, nil
 }
@@ -133,7 +132,7 @@ func (u *updater) releaseDir() (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "wolups-agent")
+	req.Header.Set("User-Agent", u.component.Name)
 	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("list releases: %w", err)
@@ -149,7 +148,7 @@ func (u *updater) releaseDir() (string, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxMetadataBytes*8)).Decode(&releases); err != nil {
 		return "", errors.New("list releases: invalid response")
 	}
-	tag, err := newestAgentTag(releases)
+	tag, err := newestTag(releases, u.component.TagPrefix)
 	if err != nil {
 		return "", err
 	}
@@ -245,86 +244,91 @@ func greaterVersion(a, b [3]int) bool {
 	return false
 }
 
-func (u *updater) run(current string) (updateOutcome, error) {
+func (u *updater) run(current string) (UpdateOutcome, error) {
 	source, err := u.releaseDir()
 	if err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
-	data, err := u.fetchVerified(source, manifestName, maxMetadataBytes)
+	data, err := u.fetchVerified(source, u.component.Manifest, maxMetadataBytes)
 	if err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 	var manifest releaseManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return updateOutcome{}, errors.New("release manifest is invalid")
+		return UpdateOutcome{}, errors.New("release manifest is invalid")
 	}
 	if _, err := parseStable(manifest.Version); err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
-	if manifest.ProtocolVersion != protocolVersion {
-		return updateOutcome{}, errors.New("release uses an incompatible protocol version")
+	if manifest.ProtocolVersion != ProtocolVersion {
+		return UpdateOutcome{}, errors.New("release uses an incompatible protocol version")
 	}
 	newer, err := isNewer(current, manifest.Version)
 	if err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 	if !newer {
-		return updateOutcome{Updated: false, LatestVersion: manifest.Version}, nil
+		return UpdateOutcome{Updated: false, LatestVersion: manifest.Version}, nil
 	}
 
-	arch := u.arch
-	if arch == "" {
-		arch = runtime.GOARCH
+	asset, err := u.component.Asset(u.arch)
+	if err != nil {
+		return UpdateOutcome{}, err
 	}
-	if arch != "amd64" && arch != "arm64" {
-		return updateOutcome{}, fmt.Errorf("unsupported architecture %s", arch)
-	}
-	asset := "wolups-agent-linux-" + arch
 	binary, err := u.fetchVerified(source, asset, maxAgentBytes)
 	if err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 
 	dir := filepath.Dir(u.binaryPath)
-	tmp, err := os.CreateTemp(dir, ".wolups-agent-update-*")
+	tmp, err := os.CreateTemp(dir, "."+u.component.Name+"-update-*")
 	if err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if _, err := tmp.Write(binary); err != nil {
 		tmp.Close()
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 	if err := tmp.Chmod(0o755); err != nil {
 		tmp.Close()
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 	if err := tmp.Close(); err != nil {
-		return updateOutcome{}, err
+		return UpdateOutcome{}, err
 	}
 	verify := u.verify
 	if verify == nil {
-		verify = verifyBinaryVersion
+		verify = func(path, version string) error { return verifyBinaryVersion(path, u.component.VersionLine(version)) }
 	}
 	if err := verify(tmpPath, manifest.Version); err != nil {
-		return updateOutcome{}, fmt.Errorf("downloaded agent failed verification: %w", err)
+		return UpdateOutcome{}, fmt.Errorf("downloaded agent failed verification: %w", err)
 	}
 	if err := os.Rename(tmpPath, u.binaryPath); err != nil {
-		return updateOutcome{}, fmt.Errorf("replace agent binary: %w", err)
+		return UpdateOutcome{}, fmt.Errorf("replace agent binary: %w", err)
 	}
-	return updateOutcome{Updated: true, LatestVersion: manifest.Version}, nil
+	return UpdateOutcome{Updated: true, LatestVersion: manifest.Version}, nil
 }
 
 // verifyBinaryVersion runs the new binary with the fixed `version` argument and checks its output.
-func verifyBinaryVersion(path, expected string) error {
+func verifyBinaryVersion(path, want string) error {
 	out, err := exec.Command(path, "version").Output()
 	if err != nil {
 		return err
 	}
-	want := fmt.Sprintf("wolups-agent %s protocol v%d", expected, protocolVersion)
 	if strings.TrimSpace(string(out)) != want {
 		return errors.New("unexpected version output")
 	}
 	return nil
+}
+
+// Update installs the newest release of the component over binaryPath when it is newer than the running version.
+func Update(c Component, releaseBase, binaryPath string) (UpdateOutcome, error) {
+	base, err := validateReleaseBase(releaseBase)
+	if err != nil {
+		return UpdateOutcome{}, err
+	}
+	u := &updater{component: c, releaseBase: base, binaryPath: binaryPath, client: httpsOnlyClient(2 * time.Minute)}
+	return u.run(c.Version)
 }

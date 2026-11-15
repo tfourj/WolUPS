@@ -144,6 +144,14 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
                     ? `v${sys.latestAgent.version} (checked ${formatDateTime(sys.latestAgent.checkedAt)})`
                     : "Not checked yet",
               ],
+              [
+                "Latest NUT agent",
+                sys.latestNutAgentError
+                  ? `Check failed: ${sys.latestNutAgentError}`
+                  : sys.latestNutAgent
+                    ? `v${sys.latestNutAgent.version}`
+                    : "None published",
+              ],
             ].map(([k, v]) => (
               <div key={k} className="grid grid-cols-[8rem_1fr] gap-2">
                 <dt className="text-muted-foreground">{k}</dt>

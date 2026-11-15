@@ -1,0 +1,75 @@
+name: NUT agent release
+
+on:
+  push:
+    tags: ["nut-agent-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Tags and history for the release notes.
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Check version tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#nut-agent-v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "NUT agent release tags must look like nut-agent-vX.Y.Z" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Test
+        working-directory: agent
+        run: go test ./...
+      - name: Build agents
+        working-directory: agent
+        run: |
+          mkdir -p ../dist
+          for arch in amd64 arm64 armv7; do
+            goarch="$arch"
+            goarm=""
+            if [ "$arch" = armv7 ]; then goarch=arm; goarm=7; fi
+            CGO_ENABLED=0 GOOS=linux GOARCH=$goarch GOARM=$goarm go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/wolups-nut-agent-linux-$arch ./cmd/wolups-nut-agent
+          done
+          ../dist/wolups-nut-agent-linux-amd64 version
+      - name: Package release files
+        working-directory: dist
+        run: |
+          cp ../agent/install-nut.sh ../agent/uninstall-nut.sh .
+          printf '{"version":"%s","protocol_version":1}\n' "$VERSION" > nut-agent-release.json
+          for f in wolups-nut-agent-linux-amd64 wolups-nut-agent-linux-arm64 wolups-nut-agent-linux-armv7 \
+            nut-agent-release.json install-nut.sh uninstall-nut.sh; do
+            sha256sum "$f" > "$f.sha256"
+          done
+      - name: Write release notes
+        run: |
+          # NUT agent changes since the previous NUT agent release, or all of them for the first one.
+          prev="$(git tag --list 'nut-agent-v[0-9]*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
+          range="HEAD"
+          [ -z "$prev" ] || range="$prev..HEAD"
+          changes="$(git log --no-merges --format='- %s (%h)' "$range" -- agent/internal agent/cmd/wolups-nut-agent \
+            agent/install-nut.sh agent/uninstall-nut.sh agent/go.mod ':!agent/cmd/wolups-agent')"
+          {
+            echo "## NUT agent changes${prev:+ since $prev}"
+            echo
+            echo "${changes:-No NUT agent code changes.}"
+          } > release-notes.md
+          cat release-notes.md
+      # Never marked latest, that is the server release. Installs, agent updates and the server's update check
+      # look up the newest nut-agent-vX.Y.Z release instead.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "NUT agent v$VERSION" --notes-file release-notes.md --latest=false

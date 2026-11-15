@@ -12,11 +12,35 @@ import { signMessage, verifyMessage } from "../crypto/signing";
  * Commands: server -> {type:"command", payload, sig}           sig over commandMessage(payload)
  *   agent  -> {type:"ack", id, ok, error?}
  * Status:   agent  -> {type:"status", info}                    every 30 seconds
+ * NUT agents only:
+ *   agent  -> {type:"progress", id, lines}                     output of a running nut_install or nut_scan
+ *   agent  -> {type:"nut_status", upsd, upsmon, listening, drivers}   every 30 seconds and after changes
  */
 export const PROTOCOL_VERSION = 1;
 
-export const COMMAND_TYPES = ["shutdown", "wol", "resolve_mac", "update", "unpair", "ping"] as const;
+export const COMMON_COMMANDS = ["update", "unpair", "ping"] as const;
+export const DEVICE_COMMANDS = ["shutdown", "wol", "resolve_mac"] as const;
+export const NUT_COMMANDS = [
+  "nut_detect",
+  "nut_install",
+  "nut_scan",
+  "nut_apply",
+  "nut_service",
+  "nut_status",
+  "nut_instcmd",
+  "nut_setvar",
+  "nut_logs",
+] as const;
+export const COMMAND_TYPES = [...COMMON_COMMANDS, ...DEVICE_COMMANDS, ...NUT_COMMANDS] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
+export type NutCommandType = (typeof NUT_COMMANDS)[number];
+
+/** Whether an agent of this kind runs the command. Device agents never get NUT commands and the reverse. */
+export function commandAllowed(kind: "device" | "nut", type: CommandType): boolean {
+  if ((COMMON_COMMANDS as readonly string[]).includes(type)) return true;
+  const own: readonly string[] = kind === "nut" ? NUT_COMMANDS : DEVICE_COMMANDS;
+  return own.includes(type);
+}
 
 export const HELLO_MAX_SKEW_MS = 5 * 60 * 1000;
 
@@ -82,6 +106,18 @@ export const agentMessageSchema = z.discriminatedUnion("type", [
     result: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({ type: z.literal("status"), info: agentInfoSchema }),
+  z.object({
+    type: z.literal("progress"),
+    id: z.string().max(64),
+    lines: z.array(z.string().max(500)).max(50),
+  }),
+  z.object({
+    type: z.literal("nut_status"),
+    upsd: z.string().max(32),
+    upsmon: z.string().max(32),
+    listening: z.boolean(),
+    drivers: z.array(z.object({ ups: z.string().max(64), state: z.string().max(32) })).max(32),
+  }),
 ]);
 
 export type AgentMessage = z.infer<typeof agentMessageSchema>;
