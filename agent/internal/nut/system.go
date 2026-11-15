@@ -359,12 +359,14 @@ func readFile(path string) (string, error) {
 // Migrate moves sections from outside the WolUPS block into it as written, and every other managed section is
 // kept. DryRun only reports what would change.
 type ApplyRequest struct {
-	UPS           []Section `json:"ups"`
-	Remove        []string  `json:"remove,omitempty"`
-	Migrate       []string  `json:"migrate,omitempty"`
-	Listen        string    `json:"listen"`
-	LocalShutdown bool      `json:"localShutdown"`
-	DryRun        bool      `json:"dryRun,omitempty"`
+	UPS     []Section `json:"ups"`
+	Remove  []string  `json:"remove,omitempty"`
+	Migrate []string  `json:"migrate,omitempty"`
+	// Edit changes the description, port or serial of managed sections without rewriting them.
+	Edit          []SectionEdit `json:"edit,omitempty"`
+	Listen        string        `json:"listen"`
+	LocalShutdown bool          `json:"localShutdown"`
+	DryRun        bool          `json:"dryRun,omitempty"`
 }
 
 // FileChange is one file an apply changes, with passwords masked.
@@ -414,7 +416,9 @@ func (s *System) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	newUpsConf, err := RenderUpsConf(upsConf, req.UPS, req.Remove, req.Migrate)
+	newUpsConf, err := RenderUpsConf(upsConf, UpsConfChange{
+		Upsert: req.UPS, Remove: req.Remove, Migrate: req.Migrate, Edit: req.Edit,
+	})
 	if err != nil {
 		return ApplyResult{}, err
 	}

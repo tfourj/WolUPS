@@ -13,7 +13,7 @@ var rack = Section{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "Rack
 	Extra: map[string]string{"vendorid": "0764", "productid": "0501"}}
 
 func TestRenderUpsConfFresh(t *testing.T) {
-	got, err := RenderUpsConf("", []Section{rack}, nil, nil)
+	got, err := RenderUpsConf("", UpsConfChange{Upsert: []Section{rack}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,12 +38,12 @@ func TestRenderUpsConfFresh(t *testing.T) {
 func TestRenderUpsConfKeepsExistingAndReplacesBlock(t *testing.T) {
 	existing := "maxretry = 3\n\n[old]\n\tdriver = blazer_usb\n\tport = auto\n"
 	snmp := Section{Name: "snmp", Driver: "snmp-ups", Port: "10.0.0.5", Extra: map[string]string{"community": "s3cret-c"}}
-	first, err := RenderUpsConf(existing, []Section{rack, snmp}, nil, nil)
+	first, err := RenderUpsConf(existing, UpsConfChange{Upsert: []Section{rack, snmp}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Adding another UPS keeps the managed ones, passwords included.
-	second, err := RenderUpsConf(first, []Section{{Name: "spare", Driver: "usbhid-ups", Port: "auto"}}, nil, nil)
+	second, err := RenderUpsConf(first, UpsConfChange{Upsert: []Section{{Name: "spare", Driver: "usbhid-ups", Port: "auto"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,16 +54,18 @@ func TestRenderUpsConfKeepsExistingAndReplacesBlock(t *testing.T) {
 	if strings.Count(second, blockBegin) != 1 {
 		t.Fatal("block duplicated")
 	}
-	replaced, _ := RenderUpsConf(second, []Section{{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "New"}},
-		[]string{"spare"}, nil)
+	replaced, _ := RenderUpsConf(second, UpsConfChange{
+		Upsert: []Section{{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "New"}},
+		Remove: []string{"spare"},
+	})
 	if names := ManagedSections(replaced); len(names) != 2 || names[0].Desc != "New" || names[1].Name != "snmp" {
 		t.Fatalf("replace and remove: %+v", names)
 	}
-	empty, _ := RenderUpsConf(replaced, nil, []string{"rack", "snmp"}, nil)
+	empty, _ := RenderUpsConf(replaced, UpsConfChange{Remove: []string{"rack", "snmp"}})
 	if empty != existing {
 		t.Fatalf("removing every managed UPS should leave the original file, got:\n%q", empty)
 	}
-	if _, err := RenderUpsConf(existing, []Section{{Name: "old", Driver: "usbhid-ups", Port: "auto"}}, nil, nil); err == nil {
+	if _, err := RenderUpsConf(existing, UpsConfChange{Upsert: []Section{{Name: "old", Driver: "usbhid-ups", Port: "auto"}}}); err == nil {
 		t.Fatal("managed section clashing with an existing one accepted")
 	}
 }
@@ -241,7 +243,7 @@ func TestApplyWritesConfigWithBackups(t *testing.T) {
 func TestMigrateKeepsSectionsAsWritten(t *testing.T) {
 	existing := "maxretry = 3\n\n[old]\n\tdriver = blazer_usb\n\tport = auto\n\tnolock\n\toverride.battery.charge.low = 20\n" +
 		"\n[snmp]\n\tdriver = snmp-ups\n\tport = 10.0.0.5\n\tcommunity = s3cret-c\n"
-	got, err := RenderUpsConf(existing, nil, nil, []string{"old"})
+	got, err := RenderUpsConf(existing, UpsConfChange{Migrate: []string{"old"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,11 +256,11 @@ func TestMigrateKeepsSectionsAsWritten(t *testing.T) {
 		t.Fatalf("migrated section changed:\n%s", block)
 	}
 	// Later changes keep the migrated section as written.
-	again, err := RenderUpsConf(got, []Section{rack}, nil, nil)
+	again, err := RenderUpsConf(got, UpsConfChange{Upsert: []Section{rack}})
 	if err != nil || !strings.Contains(blockText(again), "\tnolock\n") || !strings.Contains(blockText(again), "[rack]") {
 		t.Fatalf("migrated section lost on the next apply: %v\n%s", err, again)
 	}
-	if _, err := RenderUpsConf(existing, nil, nil, []string{"missing"}); err == nil {
+	if _, err := RenderUpsConf(existing, UpsConfChange{Migrate: []string{"missing"}}); err == nil {
 		t.Fatal("migrating an unknown section accepted")
 	}
 }
@@ -337,5 +339,39 @@ func TestReadExistingConfig(t *testing.T) {
 	if cfg.Mode != "standalone" || strings.Join(cfg.Listen, ",") != "0.0.0.0" ||
 		strings.Join(cfg.Users, ",") != "monuser" || strings.Join(cfg.Monitors, ",") != "old@localhost as monuser (primary)" {
 		t.Fatalf("got %+v", cfg)
+	}
+}
+
+func TestEditPatchesManagedSectionInPlace(t *testing.T) {
+	current, _ := RenderUpsConf("", UpsConfChange{Upsert: []Section{
+		{Name: "ups1", Driver: "usbhid-ups", Port: "auto", Desc: "Old", Extra: map[string]string{"serial": "AAA"}},
+		{Name: "snmp", Driver: "snmp-ups", Port: "10.0.0.5", Extra: map[string]string{"community": "s3cret-c"}},
+	}})
+	// A flag line WolUPS does not know must survive.
+	current = strings.Replace(current, "[ups1]\n", "[ups1]\n\tnolock\n", 1)
+	got, err := RenderUpsConf(current, UpsConfChange{Edit: []SectionEdit{
+		{Name: "ups1", Set: map[string]string{"desc": "Rack A", "serial": "BBB"}},
+		{Name: "snmp", Set: map[string]string{"port": "10.0.0.6", "desc": ""}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\tnolock\n", `desc = "Rack A"`, `serial = "BBB"`, `port = "10.0.0.6"`, `community = "s3cret-c"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "AAA") || strings.Contains(got, `desc = "Old"`) {
+		t.Fatalf("old values left:\n%s", got)
+	}
+	for _, bad := range []SectionEdit{
+		{Name: "ups1", Set: map[string]string{"driver": "x"}},
+		{Name: "ups1", Set: map[string]string{"port": ""}},
+		{Name: "ups1", Set: map[string]string{"desc": `say "hi"`}},
+		{Name: "missing", Set: map[string]string{"desc": "x"}},
+	} {
+		if _, err := RenderUpsConf(current, UpsConfChange{Edit: []SectionEdit{bad}}); err == nil {
+			t.Errorf("accepted %+v", bad)
+		}
 	}
 }

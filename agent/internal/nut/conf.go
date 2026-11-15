@@ -227,10 +227,75 @@ func splitRaw(text string) (string, []rawSection) {
 	return preamble.String(), sections
 }
 
-// RenderUpsConf changes the WolUPS block in ups.conf: upsert adds or replaces sections, remove drops managed ones by
-// name and migrate moves sections from outside the block into it exactly as written. Other managed sections stay as
-// they are, passwords included. A new section must not clash with one outside the block.
-func RenderUpsConf(current string, upsert []Section, remove, migrate []string) (string, error) {
+// SectionEdit changes a few keys of a managed section in place. Every other line stays as written, so passwords,
+// flags and keys WolUPS does not know survive an edit. An empty value removes desc or serial.
+type SectionEdit struct {
+	Name string            `json:"name"`
+	Set  map[string]string `json:"set"`
+}
+
+// editableKeys are the keys an edit may change, with whether they may be cleared.
+var editableKeys = map[string]bool{"desc": true, "port": false, "serial": true}
+
+func (e SectionEdit) validate() error {
+	if !upsNamePattern.MatchString(e.Name) {
+		return fmt.Errorf("invalid UPS name %q", e.Name)
+	}
+	for key, value := range e.Set {
+		clearable, ok := editableKeys[key]
+		switch {
+		case !ok:
+			return fmt.Errorf("%s: %s cannot be edited", e.Name, key)
+		case value == "" && !clearable:
+			return fmt.Errorf("%s: %s cannot be empty", e.Name, key)
+		case key == "desc" && !descPattern.MatchString(value):
+			return fmt.Errorf("%s: invalid description", e.Name)
+		case key != "desc" && value != "" && !confValuePattern.MatchString(value):
+			return fmt.Errorf("%s: invalid value for %s", e.Name, key)
+		}
+	}
+	return nil
+}
+
+// patchSection sets keys in a section's text, replacing their lines or adding them after the header.
+func patchSection(text string, set map[string]string) string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		line := regexp.MustCompile(`(?m)^[ \t]*` + regexp.QuoteMeta(key) + `[ \t]*=.*\n?`)
+		value := set[key]
+		if value == "" {
+			text = line.ReplaceAllString(text, "")
+			continue
+		}
+		next := fmt.Sprintf("\t%s = %s\n", key, quote(value))
+		if line.MatchString(text) {
+			text = line.ReplaceAllLiteralString(text, next)
+			continue
+		}
+		header, rest, _ := strings.Cut(text, "\n")
+		text = header + "\n" + next + rest
+	}
+	return text
+}
+
+// UpsConfChange is what an apply does to ups.conf: Upsert adds or replaces managed sections, Remove drops them,
+// Migrate moves sections from outside the block into it as written and Edit changes keys of managed sections.
+type UpsConfChange struct {
+	Upsert  []Section
+	Remove  []string
+	Migrate []string
+	Edit    []SectionEdit
+}
+
+// RenderUpsConf applies a change to the WolUPS block in ups.conf. Managed sections it does not touch stay as they
+// are, passwords included, and everything outside the block is kept. A new section must not clash with one outside
+// the block.
+func RenderUpsConf(current string, change UpsConfChange) (string, error) {
+	upsert, remove, migrate := change.Upsert, change.Remove, change.Migrate
 	outside := outsideBlock(current)
 	preamble, outsideSections := splitRaw(outside)
 	outsideNames := map[string]bool{}
@@ -262,7 +327,7 @@ func RenderUpsConf(current string, upsert []Section, remove, migrate []string) (
 		replaced[s.Name] = s
 	}
 
-	var managed []string
+	var managed []rawSection
 	inBlock := map[string]bool{}
 	_, blockSections := splitRaw(blockText(current))
 	for _, s := range blockSections {
@@ -274,11 +339,11 @@ func RenderUpsConf(current string, upsert []Section, remove, migrate []string) (
 			continue
 		}
 		if next, ok := replaced[s.Name]; ok {
-			managed = append(managed, next.render())
+			managed = append(managed, rawSection{s.Name, next.render()})
 			delete(replaced, s.Name)
 			continue
 		}
-		managed = append(managed, s.Text)
+		managed = append(managed, s)
 	}
 	var kept []string
 	for _, s := range outsideSections {
@@ -287,24 +352,39 @@ func RenderUpsConf(current string, upsert []Section, remove, migrate []string) (
 			continue
 		}
 		if next, ok := replaced[s.Name]; ok {
-			managed = append(managed, next.render())
+			managed = append(managed, rawSection{s.Name, next.render()})
 			delete(replaced, s.Name)
 		} else {
-			managed = append(managed, s.Text)
+			managed = append(managed, s)
 		}
 	}
 	for _, s := range upsert {
 		if _, pending := replaced[s.Name]; pending && !removed[s.Name] {
-			managed = append(managed, s.render())
+			managed = append(managed, rawSection{s.Name, s.render()})
+		}
+	}
+	for _, edit := range change.Edit {
+		if err := edit.validate(); err != nil {
+			return "", err
+		}
+		found := false
+		for i := range managed {
+			if managed[i].Name == edit.Name {
+				managed[i].Text = patchSection(managed[i].Text, edit.Set)
+				found = true
+			}
+		}
+		if !found {
+			return "", fmt.Errorf("%s is not managed by WolUPS; migrate it to edit it", edit.Name)
 		}
 	}
 
 	var body strings.Builder
-	for i, text := range managed {
+	for i, section := range managed {
 		if i > 0 {
 			body.WriteString("\n")
 		}
-		body.WriteString(strings.TrimRight(text, "\n") + "\n")
+		body.WriteString(strings.TrimRight(section.Text, "\n") + "\n")
 	}
 	if len(migrate) == 0 {
 		// Nothing moved, so everything outside the block stays byte for byte.
