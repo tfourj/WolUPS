@@ -28,10 +28,12 @@ const KINDS = Object.keys(RELEASE_COMPONENTS) as AgentKind[];
 
 let latest: Record<AgentKind, LatestRelease> = { device: null, nut: null };
 let lastErrors: Record<AgentKind, string | null> = { device: null, nut: null };
+/** When releases were last looked up, whether or not anything was found. */
+let lastCheckedAt: number | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 export function latestAgentRelease(kind: AgentKind = "device") {
-  return { latest: latest[kind], error: lastErrors[kind] };
+  return { latest: latest[kind], error: lastErrors[kind], checkedAt: lastCheckedAt };
 }
 
 type GitHubRelease = { tag_name?: string; draft?: boolean; prerelease?: boolean };
@@ -106,6 +108,7 @@ export async function fetchLatestReleases() {
 
 /** Run a release lookup and remember its outcome. Returns false when GitHub could not be asked at all. */
 async function refreshReleases(): Promise<boolean> {
+  lastCheckedAt = Date.now();
   try {
     const result = await fetchLatestReleases();
     latest = result.releases;
