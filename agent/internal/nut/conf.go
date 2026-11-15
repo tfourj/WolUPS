@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -199,13 +200,49 @@ func ManagedSections(text string) []Section {
 	return ParseUpsConf(blockText(text))
 }
 
-// RenderUpsConf adds or replaces the given sections in the WolUPS block and drops the removed names. Other managed
-// sections stay as they are, passwords included, and everything outside the block is kept. A managed name must not
-// clash with a section outside the block.
-func RenderUpsConf(current string, upsert []Section, remove []string) (string, error) {
-	existing := map[string]bool{}
-	for _, s := range ParseUpsConf(outsideBlock(current)) {
-		existing[s.Name] = true
+// rawSection is one ups.conf section as written: its header and every line up to the next section, so migrated
+// and kept sections keep flags, comments and keys WolUPS does not know.
+type rawSection struct {
+	Name string
+	Text string
+}
+
+// splitRaw splits text into what comes before the first section and the sections themselves. Joining the parts
+// gives back the original text.
+func splitRaw(text string) (string, []rawSection) {
+	lines := strings.SplitAfter(text, "\n")
+	var preamble strings.Builder
+	var sections []rawSection
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			sections = append(sections, rawSection{Name: strings.TrimSpace(trimmed[1 : len(trimmed)-1])})
+		}
+		if len(sections) == 0 {
+			preamble.WriteString(line)
+		} else {
+			sections[len(sections)-1].Text += line
+		}
+	}
+	return preamble.String(), sections
+}
+
+// RenderUpsConf changes the WolUPS block in ups.conf: upsert adds or replaces sections, remove drops managed ones by
+// name and migrate moves sections from outside the block into it exactly as written. Other managed sections stay as
+// they are, passwords included. A new section must not clash with one outside the block.
+func RenderUpsConf(current string, upsert []Section, remove, migrate []string) (string, error) {
+	outside := outsideBlock(current)
+	preamble, outsideSections := splitRaw(outside)
+	outsideNames := map[string]bool{}
+	for _, s := range outsideSections {
+		outsideNames[s.Name] = true
+	}
+	migrating := map[string]bool{}
+	for _, name := range migrate {
+		if !outsideNames[name] {
+			return "", fmt.Errorf("%s is not in ups.conf outside the WolUPS block", name)
+		}
+		migrating[name] = true
 	}
 	removed := map[string]bool{}
 	for _, name := range remove {
@@ -216,7 +253,7 @@ func RenderUpsConf(current string, upsert []Section, remove []string) (string, e
 		if err := s.Validate(); err != nil {
 			return "", err
 		}
-		if existing[s.Name] {
+		if outsideNames[s.Name] && !migrating[s.Name] {
 			return "", fmt.Errorf("%s already exists in ups.conf outside the WolUPS block; import it instead", s.Name)
 		}
 		if _, dup := replaced[s.Name]; dup {
@@ -224,42 +261,95 @@ func RenderUpsConf(current string, upsert []Section, remove []string) (string, e
 		}
 		replaced[s.Name] = s
 	}
-	var sections []Section
-	for _, s := range ManagedSections(current) {
+
+	var managed []string
+	inBlock := map[string]bool{}
+	_, blockSections := splitRaw(blockText(current))
+	for _, s := range blockSections {
+		inBlock[s.Name] = true
+		if migrating[s.Name] {
+			return "", fmt.Errorf("%s exists both inside and outside the WolUPS block", s.Name)
+		}
 		if removed[s.Name] {
 			continue
 		}
 		if next, ok := replaced[s.Name]; ok {
-			s = next
+			managed = append(managed, next.render())
 			delete(replaced, s.Name)
+			continue
 		}
-		sections = append(sections, s)
+		managed = append(managed, s.Text)
+	}
+	var kept []string
+	for _, s := range outsideSections {
+		if !migrating[s.Name] {
+			kept = append(kept, s.Text)
+			continue
+		}
+		if next, ok := replaced[s.Name]; ok {
+			managed = append(managed, next.render())
+			delete(replaced, s.Name)
+		} else {
+			managed = append(managed, s.Text)
+		}
 	}
 	for _, s := range upsert {
 		if _, pending := replaced[s.Name]; pending && !removed[s.Name] {
-			sections = append(sections, s)
+			managed = append(managed, s.render())
 		}
 	}
+
 	var body strings.Builder
-	for i, s := range sections {
+	for i, text := range managed {
 		if i > 0 {
 			body.WriteString("\n")
 		}
-		body.WriteString(s.render())
+		body.WriteString(strings.TrimRight(text, "\n") + "\n")
 	}
-	return withBlock(current, body.String()), nil
+	if len(migrate) == 0 {
+		// Nothing moved, so everything outside the block stays byte for byte.
+		return withBlock(current, body.String()), nil
+	}
+	return withBlock(preamble+strings.Join(kept, ""), body.String()), nil
 }
 
-// RenderUpsdConf makes upsd listen on localhost and the chosen address.
+var listenLine = regexp.MustCompile(`(?m)^\s*LISTEN\s+(\S+)(?:\s+(\d+))?\s*$`)
+
+// existingListen lists the addresses upsd already listens on for port 3493 outside the WolUPS block.
+func existingListen(text string) []string {
+	var out []string
+	for _, match := range listenLine.FindAllStringSubmatch(outsideBlock(text), -1) {
+		if match[2] == "" || match[2] == strconv.Itoa(NUTPort) {
+			out = append(out, match[1])
+		}
+	}
+	return out
+}
+
+func coveredBy(addr string, listening []string) bool {
+	for _, l := range listening {
+		if l == addr || l == "0.0.0.0" || l == "::" || l == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// RenderUpsdConf makes upsd listen on localhost and the chosen address. Addresses upsd already listens on outside
+// the WolUPS block, directly or through a wildcard, are not added again: upsd cannot bind one address twice.
 func RenderUpsdConf(current, listen string) (string, error) {
 	if !regexp.MustCompile(`^\d{1,3}(\.\d{1,3}){3}$`).MatchString(listen) {
 		return "", errors.New("listen address must be an IPv4 address")
 	}
-	body := fmt.Sprintf("LISTEN 127.0.0.1 %d\n", NUTPort)
-	if listen != "127.0.0.1" {
-		body += fmt.Sprintf("LISTEN %s %d\n", listen, NUTPort)
+	existing := existingListen(current)
+	var body strings.Builder
+	for _, addr := range []string{"127.0.0.1", listen} {
+		if coveredBy(addr, existing) || strings.Contains(body.String(), "LISTEN "+addr+" ") {
+			continue
+		}
+		fmt.Fprintf(&body, "LISTEN %s %d\n", addr, NUTPort)
 	}
-	return withBlock(current, body), nil
+	return withBlock(current, body.String()), nil
 }
 
 // Users are the NUT accounts WolUPS keeps in upsd.users.

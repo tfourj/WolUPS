@@ -56,6 +56,46 @@ type Detected struct {
 	// Existing are sections outside the WolUPS block, Managed the ones inside. Passwords are left out of both.
 	Existing []Section `json:"existing"`
 	Managed  []Section `json:"managed"`
+	// Config is the rest of the NUT setup outside the WolUPS blocks, for the migration prompt.
+	Config ExistingConfig `json:"config"`
+}
+
+// ExistingConfig summarises a NUT setup WolUPS did not write. User passwords are not included.
+type ExistingConfig struct {
+	Mode     string   `json:"mode"`
+	Listen   []string `json:"listen"`
+	Users    []string `json:"users"`
+	Monitors []string `json:"monitors"`
+}
+
+var (
+	modeValue   = regexp.MustCompile(`(?m)^\s*MODE\s*=\s*"?([A-Za-z_]+)"?`)
+	userHeader  = regexp.MustCompile(`(?m)^\s*\[([^\]]+)\]`)
+	monitorLine = regexp.MustCompile(`(?m)^\s*MONITOR\s+(\S+)\s+\S+\s+(\S+)\s+\S+\s+(\S+)`)
+)
+
+// readExisting summarises nut.conf, upsd.conf, upsd.users and upsmon.conf outside the WolUPS blocks.
+func readExisting(dir string) ExistingConfig {
+	cfg := ExistingConfig{Listen: []string{}, Users: []string{}, Monitors: []string{}}
+	if text, err := readFile(filepath.Join(dir, "nut.conf")); err == nil {
+		if match := modeValue.FindStringSubmatch(text); match != nil {
+			cfg.Mode = match[1]
+		}
+	}
+	if text, err := readFile(filepath.Join(dir, "upsd.conf")); err == nil {
+		cfg.Listen = append(cfg.Listen, existingListen(text)...)
+	}
+	if text, err := readFile(filepath.Join(dir, "upsd.users")); err == nil {
+		for _, match := range userHeader.FindAllStringSubmatch(outsideBlock(text), -1) {
+			cfg.Users = append(cfg.Users, match[1])
+		}
+	}
+	if text, err := readFile(filepath.Join(dir, "upsmon.conf")); err == nil {
+		for _, match := range monitorLine.FindAllStringSubmatch(outsideBlock(text), -1) {
+			cfg.Monitors = append(cfg.Monitors, fmt.Sprintf("%s as %s (%s)", match[1], match[2], match[3]))
+		}
+	}
+	return cfg
 }
 
 // Services are the states of upsd and upsmon: running, stopped, failed or missing.
@@ -181,6 +221,7 @@ func (s *System) Detect(ctx context.Context) Detected {
 		Services:       Services{Upsd: s.unitState(ctx, "nut-server"), Upsmon: s.unitState(ctx, "nut-monitor")},
 		Existing:       existing,
 		Managed:        managed,
+		Config:         readExisting(dir),
 	}
 }
 
@@ -315,19 +356,44 @@ func readFile(path string) (string, error) {
 }
 
 // ApplyRequest is the nut_apply command. UPS sections are added or replaced, Remove drops managed sections by name,
-// and every other managed section is kept.
+// Migrate moves sections from outside the WolUPS block into it as written, and every other managed section is
+// kept. DryRun only reports what would change.
 type ApplyRequest struct {
 	UPS           []Section `json:"ups"`
 	Remove        []string  `json:"remove,omitempty"`
+	Migrate       []string  `json:"migrate,omitempty"`
 	Listen        string    `json:"listen"`
 	LocalShutdown bool      `json:"localShutdown"`
+	DryRun        bool      `json:"dryRun,omitempty"`
 }
 
-// ApplyResult tells the server which files changed and how to log in.
+// FileChange is one file an apply changes, with passwords masked.
+type FileChange struct {
+	Path   string `json:"path"`
+	Before string `json:"before"`
+	After  string `json:"after"`
+}
+
+// ApplyResult tells the server which files changed and how to log in. A dry run only fills Changes.
 type ApplyResult struct {
-	Files           []string `json:"files"`
-	MonitorUser     string   `json:"monitorUser"`
-	MonitorPassword string   `json:"monitorPassword"`
+	Files           []string     `json:"files"`
+	Changes         []FileChange `json:"changes,omitempty"`
+	MonitorUser     string       `json:"monitorUser,omitempty"`
+	MonitorPassword string       `json:"monitorPassword,omitempty"`
+}
+
+var secretLines = []*regexp.Regexp{
+	regexp.MustCompile(`(?m)^(\s*password\s*=\s*).*$`),
+	regexp.MustCompile(`(?m)^(\s*(?:community|authPassword|privPassword)\s*=\s*).*$`),
+	regexp.MustCompile(`(?m)^(\s*MONITOR\s+\S+\s+\S+\s+\S+\s+)\S+`),
+}
+
+// MaskSecrets hides passwords in NUT config text before it leaves the host.
+func MaskSecrets(text string) string {
+	for _, pattern := range secretLines {
+		text = pattern.ReplaceAllString(text, "${1}***")
+	}
+	return text
 }
 
 // Apply writes the NUT config for the request and restarts NUT. Sections outside the WolUPS block stay as they are.
@@ -348,7 +414,7 @@ func (s *System) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	newUpsConf, err := RenderUpsConf(upsConf, req.UPS, req.Remove)
+	newUpsConf, err := RenderUpsConf(upsConf, req.UPS, req.Remove, req.Migrate)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -367,19 +433,30 @@ func (s *System) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 		},
 	}
 	// Render everything before writing anything, so a bad value leaves the config untouched.
-	rendered := map[string]string{}
+	order := []string{upsConfPath, filepath.Join(dir, "upsd.conf"), filepath.Join(dir, "upsd.users"),
+		filepath.Join(dir, "nut.conf"), filepath.Join(dir, "upsmon.conf")}
+	rendered, originals := map[string]string{}, map[string]string{}
 	for path, render := range files {
 		current, err := readFile(path)
 		if err != nil {
 			return ApplyResult{}, err
 		}
+		originals[path] = current
 		if rendered[path], err = render(current); err != nil {
 			return ApplyResult{}, err
 		}
 	}
+	if req.DryRun {
+		changes := []FileChange{}
+		for _, path := range order {
+			if rendered[path] != originals[path] {
+				changes = append(changes, FileChange{Path: path, Before: MaskSecrets(originals[path]), After: MaskSecrets(rendered[path])})
+			}
+		}
+		return ApplyResult{Files: []string{}, Changes: changes}, nil
+	}
 	changed := []string{}
-	for _, path := range []string{upsConfPath, filepath.Join(dir, "upsd.conf"), filepath.Join(dir, "upsd.users"),
-		filepath.Join(dir, "nut.conf"), filepath.Join(dir, "upsmon.conf")} {
+	for _, path := range order {
 		wrote, err := s.writeFile(path, rendered[path])
 		if err != nil {
 			return ApplyResult{}, fmt.Errorf("write %s: %w", path, err)

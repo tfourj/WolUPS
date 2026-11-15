@@ -13,7 +13,7 @@ var rack = Section{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "Rack
 	Extra: map[string]string{"vendorid": "0764", "productid": "0501"}}
 
 func TestRenderUpsConfFresh(t *testing.T) {
-	got, err := RenderUpsConf("", []Section{rack}, nil)
+	got, err := RenderUpsConf("", []Section{rack}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,12 +38,12 @@ func TestRenderUpsConfFresh(t *testing.T) {
 func TestRenderUpsConfKeepsExistingAndReplacesBlock(t *testing.T) {
 	existing := "maxretry = 3\n\n[old]\n\tdriver = blazer_usb\n\tport = auto\n"
 	snmp := Section{Name: "snmp", Driver: "snmp-ups", Port: "10.0.0.5", Extra: map[string]string{"community": "s3cret-c"}}
-	first, err := RenderUpsConf(existing, []Section{rack, snmp}, nil)
+	first, err := RenderUpsConf(existing, []Section{rack, snmp}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Adding another UPS keeps the managed ones, passwords included.
-	second, err := RenderUpsConf(first, []Section{{Name: "spare", Driver: "usbhid-ups", Port: "auto"}}, nil)
+	second, err := RenderUpsConf(first, []Section{{Name: "spare", Driver: "usbhid-ups", Port: "auto"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,15 +54,16 @@ func TestRenderUpsConfKeepsExistingAndReplacesBlock(t *testing.T) {
 	if strings.Count(second, blockBegin) != 1 {
 		t.Fatal("block duplicated")
 	}
-	replaced, _ := RenderUpsConf(second, []Section{{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "New"}}, []string{"spare"})
+	replaced, _ := RenderUpsConf(second, []Section{{Name: "rack", Driver: "usbhid-ups", Port: "auto", Desc: "New"}},
+		[]string{"spare"}, nil)
 	if names := ManagedSections(replaced); len(names) != 2 || names[0].Desc != "New" || names[1].Name != "snmp" {
 		t.Fatalf("replace and remove: %+v", names)
 	}
-	empty, _ := RenderUpsConf(replaced, nil, []string{"rack", "snmp"})
+	empty, _ := RenderUpsConf(replaced, nil, []string{"rack", "snmp"}, nil)
 	if empty != existing {
 		t.Fatalf("removing every managed UPS should leave the original file, got:\n%q", empty)
 	}
-	if _, err := RenderUpsConf(existing, []Section{{Name: "old", Driver: "usbhid-ups", Port: "auto"}}, nil); err == nil {
+	if _, err := RenderUpsConf(existing, []Section{{Name: "old", Driver: "usbhid-ups", Port: "auto"}}, nil, nil); err == nil {
 		t.Fatal("managed section clashing with an existing one accepted")
 	}
 }
@@ -234,5 +235,107 @@ func TestApplyWritesConfigWithBackups(t *testing.T) {
 	}
 	if _, err := sys.Apply(context.Background(), ApplyRequest{UPS: []Section{{Name: "Bad"}}, Listen: "192.168.1.5"}); err == nil {
 		t.Fatal("invalid section applied")
+	}
+}
+
+func TestMigrateKeepsSectionsAsWritten(t *testing.T) {
+	existing := "maxretry = 3\n\n[old]\n\tdriver = blazer_usb\n\tport = auto\n\tnolock\n\toverride.battery.charge.low = 20\n" +
+		"\n[snmp]\n\tdriver = snmp-ups\n\tport = 10.0.0.5\n\tcommunity = s3cret-c\n"
+	got, err := RenderUpsConf(existing, nil, nil, []string{"old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := outsideBlock(got)
+	if strings.Contains(outside, "[old]") || !strings.Contains(outside, "[snmp]") || !strings.HasPrefix(outside, "maxretry = 3") {
+		t.Fatalf("outside block:\n%s", outside)
+	}
+	block := blockText(got)
+	if !strings.Contains(block, "\tnolock\n") || !strings.Contains(block, "override.battery.charge.low = 20") {
+		t.Fatalf("migrated section changed:\n%s", block)
+	}
+	// Later changes keep the migrated section as written.
+	again, err := RenderUpsConf(got, []Section{rack}, nil, nil)
+	if err != nil || !strings.Contains(blockText(again), "\tnolock\n") || !strings.Contains(blockText(again), "[rack]") {
+		t.Fatalf("migrated section lost on the next apply: %v\n%s", err, again)
+	}
+	if _, err := RenderUpsConf(existing, nil, nil, []string{"missing"}); err == nil {
+		t.Fatal("migrating an unknown section accepted")
+	}
+}
+
+func TestListenSkipsAddressesAlreadyServed(t *testing.T) {
+	cases := map[string]string{
+		"":                                   "LISTEN 127.0.0.1 3493\nLISTEN 192.168.1.5 3493\n",
+		"LISTEN 127.0.0.1 3493\n":            "LISTEN 192.168.1.5 3493\n",
+		"LISTEN 192.168.1.5\n":               "LISTEN 127.0.0.1 3493\n",
+		"LISTEN 0.0.0.0 3493\n":              "",
+		"LISTEN :: 3493\n":                   "",
+		"LISTEN 192.168.1.5 3494\n":          "LISTEN 127.0.0.1 3493\nLISTEN 192.168.1.5 3493\n",
+		"# LISTEN 0.0.0.0 3493\nMAXAGE 15\n": "LISTEN 127.0.0.1 3493\nLISTEN 192.168.1.5 3493\n",
+	}
+	for current, want := range cases {
+		got, err := RenderUpsdConf(current, "192.168.1.5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body := strings.TrimPrefix(blockText(got), "\n# Written by wolups-nut-agent. Changes inside this block are replaced.\n"); body != want {
+			t.Errorf("existing %q: block %q, want %q", current, body, want)
+		}
+	}
+}
+
+func TestMaskSecrets(t *testing.T) {
+	text := "[admin]\n\tpassword = hunter2\nMONITOR rack@localhost 1 admin hunter2 primary\n\tcommunity = \"c0mm\"\n"
+	masked := MaskSecrets(text)
+	if strings.Contains(masked, "hunter2") || strings.Contains(masked, "c0mm") {
+		t.Fatalf("secrets left: %s", masked)
+	}
+	if !strings.Contains(masked, "MONITOR rack@localhost 1 admin *** primary") {
+		t.Fatalf("monitor line: %s", masked)
+	}
+}
+
+func TestDryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	original := "[old]\n\tdriver = blazer_usb\n\tport = auto\n"
+	os.WriteFile(filepath.Join(dir, "ups.conf"), []byte(original), 0o640)
+	sys := &System{ConfigDirs: []string{dir}, StateDir: filepath.Join(dir, "state"), Now: time.Now,
+		Run: func(_ context.Context, name string, _ ...string) (string, error) {
+			if strings.HasSuffix(name, "upsd") {
+				return "Network UPS Tools upsd 2.8.1", nil
+			}
+			t.Fatalf("dry run ran %s", name)
+			return "", nil
+		}}
+	result, err := sys.Apply(context.Background(), ApplyRequest{Migrate: []string{"old"}, Listen: "192.168.1.5", DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Changes) != 4 || result.MonitorPassword != "" {
+		t.Fatalf("result: %+v", result)
+	}
+	for _, change := range result.Changes {
+		if strings.Contains(change.After, "password = \"") && !strings.Contains(change.After, "password = ***") {
+			t.Fatalf("%s leaks a password", change.Path)
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "ups.conf")); string(data) != original {
+		t.Fatal("dry run wrote ups.conf")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "upsd.conf")); err == nil {
+		t.Fatal("dry run created upsd.conf")
+	}
+}
+
+func TestReadExistingConfig(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "nut.conf"), []byte("MODE=standalone\n"), 0o640)
+	os.WriteFile(filepath.Join(dir, "upsd.conf"), []byte("LISTEN 0.0.0.0 3493\n"), 0o640)
+	os.WriteFile(filepath.Join(dir, "upsd.users"), []byte("[monuser]\n\tpassword = secret\n\tupsmon primary\n"), 0o640)
+	os.WriteFile(filepath.Join(dir, "upsmon.conf"), []byte("MONITOR old@localhost 1 monuser secret primary\n"), 0o640)
+	cfg := readExisting(dir)
+	if cfg.Mode != "standalone" || strings.Join(cfg.Listen, ",") != "0.0.0.0" ||
+		strings.Join(cfg.Users, ",") != "monuser" || strings.Join(cfg.Monitors, ",") != "old@localhost as monuser (primary)" {
+		t.Fatalf("got %+v", cfg)
 	}
 }
