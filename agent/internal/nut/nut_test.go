@@ -2,6 +2,7 @@ package nut
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -378,36 +379,56 @@ func TestEditPatchesManagedSectionInPlace(t *testing.T) {
 
 func TestUpsmonMonitorsAndToggle(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "upsmon.conf"),
-		[]byte("MONITOR powerwalker-1@nut.invalid 1 mon pw primary\nMONITOR ups@127.0.0.1:1 1 mon pw slave\n"), 0o640)
+	os.WriteFile(filepath.Join(dir, "upsmon.conf"), []byte("MONITOR powerwalker-1@nut.local 1 mon pw primary\n"+
+		"MONITOR ups@127.0.0.1:1 1 mon pw slave\nMONITOR rack@resolves.example 1 mon pw slave\n"), 0o640)
+	journal := ""
 	var ran []string
 	sys := &System{ConfigDirs: []string{dir}, StateDir: filepath.Join(dir, "state"), Now: time.Now,
 		Run: func(_ context.Context, name string, args ...string) (string, error) {
+			switch name {
+			case "getent":
+				// Like Raspberry Pi OS: .local goes to mDNS only, so it does not resolve even if DNS would.
+				if args[1] == "resolves.example" {
+					return "127.0.0.1 STREAM resolves.example\n", nil
+				}
+				return "", errors.New("exit status 2")
+			case "journalctl":
+				return journal, nil
+			}
 			ran = append(ran, name+" "+strings.Join(args, " "))
 			return "", nil
 		}}
-	monitors := sys.monitors()
-	if len(monitors) != 2 || monitors[0].Reachable || monitors[0].Error != "no such host" ||
-		monitors[1].Reachable || monitors[1].Error != "cannot connect" {
+	ctx := context.Background()
+	monitors := sys.monitors(ctx)
+	if len(monitors) != 3 || monitors[0].Reachable || monitors[0].Error != "no such host" ||
+		monitors[1].Reachable || monitors[1].Error != "cannot connect" || monitors[2].Error != "cannot connect" {
 		t.Fatalf("monitors: %+v", monitors)
 	}
+	// What upsmon logged wins: a target it keeps failing to reach is unreachable, with its reason.
+	journal = "UPS [rack@resolves.example]: connect failed: Connection refused\n" +
+		"Login on UPS [ups@127.0.0.1:1] failed - got [ERR ACCESS-DENIED]\n"
+	monitors = sys.monitors(ctx)
+	if monitors[2].Error != "connection refused" || monitors[1].Error != "login failed" {
+		t.Fatalf("monitors from the journal: %+v", monitors)
+	}
+
 	acc, _ := sys.LoadAccounts()
 	acc.LocalShutdown = true
 	sys.SaveAccounts(acc)
-	if err := sys.SetUpsmon(context.Background(), false); err != nil {
+	if err := sys.SetUpsmon(ctx, false); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := sys.LoadAccounts(); after.LocalShutdown {
 		t.Fatal("turning upsmon off kept local shutdown on")
 	}
-	if err := sys.SetUpsmon(context.Background(), true); err != nil {
+	if err := sys.SetUpsmon(ctx, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(ran, "\n"); got != "systemctl disable --now nut-monitor.service\nsystemctl enable --now nut-monitor.service" {
 		t.Fatalf("ran:\n%s", got)
 	}
 	os.WriteFile(filepath.Join(dir, "upsmon.conf"), []byte("# nothing\n"), 0o640)
-	if err := sys.SetUpsmon(context.Background(), true); err == nil {
+	if err := sys.SetUpsmon(ctx, true); err == nil {
 		t.Fatal("turned upsmon on without MONITOR lines")
 	}
 }

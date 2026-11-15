@@ -21,6 +21,7 @@ function system() {
     latestAgentError: release.error,
     latestNutAgent: nutRelease.latest,
     latestNutAgentError: nutRelease.error,
+    agentReleaseCheckedAt: release.checkedAt,
   };
 }
 

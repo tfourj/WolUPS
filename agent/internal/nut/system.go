@@ -530,7 +530,7 @@ type Status struct {
 	Monitors []MonitorStatus `json:"monitors"`
 }
 
-// MonitorStatus is one UPS upsmon watches and whether its upsd can be reached from this host.
+// MonitorStatus is one UPS upsmon watches and whether upsmon reaches its upsd.
 type MonitorStatus struct {
 	System    string `json:"system"`
 	Reachable bool   `json:"reachable"`
@@ -539,8 +539,44 @@ type MonitorStatus struct {
 
 var monitorSystem = regexp.MustCompile(`(?m)^\s*MONITOR\s+(\S+)`)
 
-// checkMonitor connects to the upsd of a MONITOR system such as ups@host or ups@host:port.
-func checkMonitor(system string) MonitorStatus {
+// monitorSystems lists the systems of every MONITOR line in upsmon.conf, such as ups@host or ups@host:port.
+func (s *System) monitorSystems() []string {
+	data, err := readFile(filepath.Join(s.ConfigDir(), "upsmon.conf"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, match := range monitorSystem.FindAllStringSubmatch(data, 16) {
+		out = append(out, match[1])
+	}
+	return out
+}
+
+// resolve looks a host up the way upsmon does, through the system resolver (getent and nsswitch.conf). The agent is
+// a static Go build whose own resolver ignores nsswitch, so it could find a .local name that upsmon cannot.
+func (s *System) resolve(ctx context.Context, host string) (string, error) {
+	if net.ParseIP(host) != nil {
+		return host, nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := s.Run(lookupCtx, "getent", "ahostsv4", host)
+	if errors.Is(err, exec.ErrNotFound) {
+		addrs, lookupErr := net.DefaultResolver.LookupHost(lookupCtx, host)
+		if lookupErr != nil || len(addrs) == 0 {
+			return "", errors.New("no such host")
+		}
+		return addrs[0], nil
+	}
+	fields := strings.Fields(out)
+	if err != nil || len(fields) == 0 || net.ParseIP(fields[0]) == nil {
+		return "", errors.New("no such host")
+	}
+	return fields[0], nil
+}
+
+// checkMonitor resolves a MONITOR system such as ups@host or ups@host:port and connects to its upsd.
+func (s *System) checkMonitor(ctx context.Context, system string) MonitorStatus {
 	status := MonitorStatus{System: system}
 	_, address, ok := strings.Cut(system, "@")
 	if !ok || address == "" {
@@ -550,14 +586,14 @@ func checkMonitor(system string) MonitorStatus {
 	if h, p, err := net.SplitHostPort(address); err == nil {
 		host, port = h, p
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 2*time.Second)
+	ip, err := s.resolve(ctx, host)
 	if err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) {
-			status.Error = "no such host"
-		} else {
-			status.Error = "cannot connect"
-		}
+		status.Error = err.Error()
+		return status
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), 2*time.Second)
+	if err != nil {
+		status.Error = "cannot connect"
 		return status
 	}
 	conn.Close()
@@ -565,15 +601,46 @@ func checkMonitor(system string) MonitorStatus {
 	return status
 }
 
-// monitors checks every MONITOR line in upsmon.conf.
-func (s *System) monitors() []MonitorStatus {
+// upsmonFailures reads what upsmon itself logged in the last 90 seconds: for each system it keeps failing to reach,
+// the reason from its latest line, such as "No such host". upsmon retries every few seconds while it fails.
+func (s *System) upsmonFailures(ctx context.Context) map[string]string {
+	out, err := s.Run(ctx, "journalctl", "--no-pager", "-o", "cat", "-u", "nut-monitor", "--since", "-90s")
+	failures := map[string]string{}
+	if err != nil && strings.TrimSpace(out) == "" {
+		return failures
+	}
+	for _, line := range strings.Split(out, "\n") {
+		match := upsmonFailure.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		reason := strings.TrimSpace(match[2])
+		if reason == "" {
+			reason = "login failed"
+		}
+		failures[match[1]] = reason
+	}
+	return failures
+}
+
+// upsmonFailure matches upsmon's "UPS [ups@host]: connect failed: <reason>" and "Login on UPS [ups@host] failed".
+var upsmonFailure = regexp.MustCompile(`UPS \[([^\]]+)\]:? (?:connect failed: (.*)|failed.*)$`)
+
+// monitors checks every MONITOR target, both by connecting to it and by what upsmon logged about it.
+func (s *System) monitors(ctx context.Context) []MonitorStatus {
 	out := []MonitorStatus{}
-	data, err := readFile(filepath.Join(s.ConfigDir(), "upsmon.conf"))
-	if err != nil {
+	systems := s.monitorSystems()
+	if len(systems) == 0 {
 		return out
 	}
-	for _, match := range monitorSystem.FindAllStringSubmatch(data, 16) {
-		out = append(out, checkMonitor(match[1]))
+	failures := s.upsmonFailures(ctx)
+	for _, system := range systems {
+		status := s.checkMonitor(ctx, system)
+		if reason, failed := failures[system]; failed {
+			status.Reachable = false
+			status.Error = strings.ToLower(reason)
+		}
+		out = append(out, status)
 	}
 	return out
 }
@@ -586,7 +653,7 @@ func (s *System) SetUpsmon(ctx context.Context, enabled bool) error {
 		return err
 	}
 	if enabled {
-		if len(s.monitors()) == 0 {
+		if len(s.monitorSystems()) == 0 {
 			return errors.New("upsmon.conf has no MONITOR lines; turn on \"Shut down this host\" in the setup wizard")
 		}
 		if out, err := s.Run(ctx, "systemctl", "enable", "--now", "nut-monitor.service"); err != nil {
@@ -616,7 +683,7 @@ func (s *System) Status(ctx context.Context) Status {
 		Upsd:     s.unitState(ctx, "nut-server"),
 		Upsmon:   s.unitState(ctx, "nut-monitor"),
 		Drivers:  []DriverStatus{},
-		Monitors: s.monitors(),
+		Monitors: s.monitors(ctx),
 	}
 	if out, _ := s.Run(ctx, "systemctl", "is-enabled", "nut-monitor.service"); strings.TrimSpace(out) == "enabled" {
 		st.UpsmonEnabled = true

@@ -68,10 +68,23 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
   const [s, setS] = useState(data.settings);
   useEffect(() => setS(data.settings), [data.settings]);
   const check = useAction(() => api.post<SystemInfo>("/settings/check-agent-release"), {
-    invalidate: [["settings"], ["devices"]],
-    success: (r) => (r.latestAgentError ? null : `Latest agent: v${r.latestAgent?.version ?? "none published"}`),
+    invalidate: [["settings"], ["devices"], ["nut-hosts"]],
+    success: (r) => {
+      const latest = (release: SystemInfo["latestAgent"], error: string | null) =>
+        error ? "check failed" : release ? `v${release.version}` : "none published";
+      const agent = latest(r.latestAgent, r.latestAgentError);
+      const nutAgent = latest(r.latestNutAgent, r.latestNutAgentError);
+      return `Latest agent: ${agent} · NUT agent: ${nutAgent}`;
+    },
   });
   const sys = data.system;
+  /** A release row: its version or none, with when releases were last checked. */
+  const releaseText = (release: SystemInfo["latestAgent"], error: string | null) => {
+    if (error) return `Check failed: ${error}`;
+    if (!sys.agentReleaseCheckedAt) return "Not checked yet";
+    const checked = `checked ${formatDateTime(sys.agentReleaseCheckedAt)}`;
+    return release ? `v${release.version} (${checked})` : `None published (${checked})`;
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -136,22 +149,8 @@ function GeneralTab({ data, onSave }: { data: SettingsResponse; onSave: (p: Part
               ["Version", sys.commit ? `v${sys.version} (${sys.commit})` : `v${sys.version}`],
               ["Time zone", sys.timezone],
               ["Agent releases", sys.agentRepo],
-              [
-                "Latest agent",
-                sys.latestAgentError
-                  ? `Check failed: ${sys.latestAgentError}`
-                  : sys.latestAgent
-                    ? `v${sys.latestAgent.version} (checked ${formatDateTime(sys.latestAgent.checkedAt)})`
-                    : "Not checked yet",
-              ],
-              [
-                "Latest NUT agent",
-                sys.latestNutAgentError
-                  ? `Check failed: ${sys.latestNutAgentError}`
-                  : sys.latestNutAgent
-                    ? `v${sys.latestNutAgent.version}`
-                    : "None published",
-              ],
+              ["Latest agent", releaseText(sys.latestAgent, sys.latestAgentError)],
+              ["Latest NUT agent", releaseText(sys.latestNutAgent, sys.latestNutAgentError)],
             ].map(([k, v]) => (
               <div key={k} className="grid grid-cols-[8rem_1fr] gap-2">
                 <dt className="text-muted-foreground">{k}</dt>

@@ -175,6 +175,8 @@ export type SystemInfo = {
   latestAgentError: string | null;
   latestNutAgent: { version: string; url: string; checkedAt: number } | null;
   latestNutAgentError: string | null;
+  /** When agent releases were last looked up. */
+  agentReleaseCheckedAt: number | null;
 };
 
 export type NutServices = {
