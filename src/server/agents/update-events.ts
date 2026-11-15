@@ -76,6 +76,11 @@ export function groupedEvent(type: AgentUpdateEventType, events: AgentUpdateEven
   };
 }
 
+/** Time until a group is sent: the quiet window, cut short once the group reaches its maximum age. */
+export function groupDelay(startedAt: number, now: number): number {
+  return Math.max(0, Math.min(GROUP_QUIET_MS, startedAt + GROUP_MAX_MS - now));
+}
+
 /** Emit the waiting group of this type now. */
 export function flushAgentUpdateEvents(type: AgentUpdateEventType) {
   const group = groups.get(type);
@@ -96,6 +101,6 @@ export function queueAgentUpdateEvent(type: AgentUpdateEventType, event: AgentUp
   const events = existing?.events ?? new Map<string, AgentUpdateEvent>();
   const startedAt = existing?.startedAt ?? now;
   events.set(event.deviceId, event);
-  const delay = Math.max(0, Math.min(GROUP_QUIET_MS, startedAt + GROUP_MAX_MS - now));
-  groups.set(type, { events, startedAt, timer: setTimeout(() => flushAgentUpdateEvents(type), delay) });
+  const timer = setTimeout(() => flushAgentUpdateEvents(type), groupDelay(startedAt, now));
+  groups.set(type, { events, startedAt, timer });
 }

@@ -36,6 +36,13 @@ describe("channel filters", () => {
     const deviceEvent = { type: "ups_on_battery", upsId: null, deviceId: "d2" };
     expect(channelMatches(channel({ deviceIds: ["d1"] }), deviceEvent)).toBe(false);
   });
+
+  test("a grouped agent update matches a device filter on any of its devices", () => {
+    const grouped = { type: "agent_updated", upsId: null, deviceId: null, data: { deviceIds: ["d1", "d2"] } };
+    const events = ["agent_updated"];
+    expect(channelMatches(channel({ events, deviceIds: ["d2"] }), grouped)).toBe(true);
+    expect(channelMatches(channel({ events, deviceIds: ["d3"] }), grouped)).toBe(false);
+  });
 });
 
 describe("retry backoff", () => {
