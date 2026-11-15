@@ -55,14 +55,21 @@ The NUT agent sets up NUT on the machine your UPS is plugged into (Linux with sy
 Choose **Add NUT host** in **UPS** and follow the steps:
 
 1. **Install.** Run the install command on that machine as root, like the device agent.
-2. **Check.** If NUT is missing, **Install NUT** installs it with apt, dnf or pacman.
-3. **Scan.** Find UPS units over USB or SNMP (v1, v2c or v3), or import ones already in `ups.conf`.
-4. **Configure.** Pick the address upsd listens on. The WolUPS server must reach it on port 3493.
+2. **Check.** If NUT is missing, **Install NUT** installs it with apt, dnf or pacman. An existing NUT setup is
+   shown with a choice: **Migrate to WolUPS** or **Keep my config**.
+3. **Scan.** Find UPS units over USB or SNMP (v1, v2c or v3). UPS already in `ups.conf` are listed too.
+4. **Configure.** Pick the address upsd listens on. The WolUPS server must reach it on port 3493. Every file
+   change is shown before anything is written.
 5. **Apply.** The agent writes the config and restarts NUT. WolUPS adds each UPS once it can read it.
 
 The agent only changes lines between `# BEGIN wolups` and `# END wolups` in `ups.conf`, `upsd.conf`, `upsd.users`
 and `upsmon.conf`, sets `MODE=netserver` in `nut.conf`, and keeps a `.wolups-<time>` backup of each file it
 changes. SNMP passwords are written to `ups.conf` only, never stored by WolUPS.
+
+With an existing setup, **Migrate to WolUPS** moves your UPS sections into the WolUPS block exactly as written, so
+WolUPS can manage them; **Keep my config** leaves them where they are and only monitors them. Your users and upsmon
+lines stay either way, and listen addresses upsd already serves are not added again. A UPS you added to WolUPS by
+hand for that host is taken over, so its devices and history stay.
 
 **Manage** in a UPS menu runs instant commands, changes writable settings and removes the UPS from NUT. The host
 card menu adds more UPS, restarts NUT and shows its logs. **NUT service failed** and **NUT service recovered**
