@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultStateDir    = "/var/lib/wolups-agent"
-	defaultReleaseBase = "https://github.com/tfourj/WolUPS/releases/latest/download"
+	defaultReleaseBase = "https://github.com/tfourj/WolUPS/releases"
 	maxProcessed       = 500
 )
 

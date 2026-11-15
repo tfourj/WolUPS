@@ -25,9 +25,18 @@ const (
 	manifestName     = "agent-release.json"
 	maxMetadataBytes = 1 << 20
 	maxAgentBytes    = 128 << 20
+	agentTagPrefix   = "agent-v"
+	githubAPI        = "https://api.github.com"
+	githubWeb        = "https://github.com"
 )
 
 var stableVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// githubReleases matches a repository's releases page. Agents paired before separate agent releases saved
+// .../releases/latest/download, which is treated the same way.
+var githubReleases = regexp.MustCompile(
+	`^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/releases(/latest/download)?$`,
+)
 
 type releaseManifest struct {
 	Version         string `json:"version"`
@@ -39,14 +48,18 @@ type updateOutcome struct {
 	LatestVersion string
 }
 
-// updater installs a newer agent from the release directory saved at enrollment.
-// The server can only trigger it; it never supplies a URL, path or command.
+// updater installs a newer agent from the release source saved at enrollment: a GitHub releases page, where it
+// picks the newest agent-vX.Y.Z release, or a fixed HTTPS directory. The server can only trigger it; it never
+// supplies a URL, path or command.
 type updater struct {
 	releaseBase string
 	binaryPath  string
 	arch        string
 	client      *http.Client
 	verify      func(path, expected string) error
+	// apiURL and webURL replace the GitHub hosts in tests.
+	apiURL string
+	webURL string
 }
 
 func validateReleaseBase(value string) (string, error) {
@@ -73,8 +86,78 @@ func httpsOnlyClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func (u *updater) fetch(name string, limit int64) ([]byte, error) {
-	resp, err := u.client.Get(u.releaseBase + "/" + name)
+type githubRelease struct {
+	TagName    string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+}
+
+// newestAgentTag returns the highest stable agent-vX.Y.Z tag among the repository's releases.
+func newestAgentTag(releases []githubRelease) (string, error) {
+	best, bestTag := [3]int{}, ""
+	for _, r := range releases {
+		if r.Draft || r.Prerelease || !strings.HasPrefix(r.TagName, agentTagPrefix) {
+			continue
+		}
+		v, err := parseStable(strings.TrimPrefix(r.TagName, agentTagPrefix))
+		if err != nil {
+			continue
+		}
+		if bestTag == "" || greaterVersion(v, best) {
+			best, bestTag = v, r.TagName
+		}
+	}
+	if bestTag == "" {
+		return "", errors.New("no agent release found")
+	}
+	return bestTag, nil
+}
+
+// releaseDir returns the HTTPS directory that holds the release files to install.
+func (u *updater) releaseDir() (string, error) {
+	match := githubReleases.FindStringSubmatch(u.releaseBase)
+	if match == nil {
+		return u.releaseBase, nil
+	}
+	owner, repo := match[1], match[2]
+	apiURL, webURL := u.apiURL, u.webURL
+	if apiURL == "" {
+		apiURL = githubAPI
+	}
+	if webURL == "" {
+		webURL = githubWeb
+	}
+	listURL := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=100", apiURL, owner, repo)
+	req, err := http.NewRequest(http.MethodGet, listURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "wolups-agent")
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("list releases: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		return "", errors.New("list releases: GitHub API rate limit reached, try again later")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("list releases: HTTP %d", resp.StatusCode)
+	}
+	var releases []githubRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxMetadataBytes*8)).Decode(&releases); err != nil {
+		return "", errors.New("list releases: invalid response")
+	}
+	tag, err := newestAgentTag(releases)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/%s/%s/releases/download/%s", webURL, owner, repo, tag), nil
+}
+
+func (u *updater) fetch(dir, name string, limit int64) ([]byte, error) {
+	resp, err := u.client.Get(dir + "/" + name)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", name, err)
 	}
@@ -111,12 +194,12 @@ func verifyChecksum(data []byte, expected string) error {
 	return nil
 }
 
-func (u *updater) fetchVerified(name string, limit int64) ([]byte, error) {
-	data, err := u.fetch(name, limit)
+func (u *updater) fetchVerified(dir, name string, limit int64) ([]byte, error) {
+	data, err := u.fetch(dir, name, limit)
 	if err != nil {
 		return nil, err
 	}
-	sums, err := u.fetch(name+".sha256", maxMetadataBytes)
+	sums, err := u.fetch(dir, name+".sha256", maxMetadataBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -150,16 +233,24 @@ func isNewer(current, candidate string) (bool, error) {
 	if err != nil {
 		return true, nil // dev builds always accept a stable release
 	}
+	return greaterVersion(c, cur), nil
+}
+
+func greaterVersion(a, b [3]int) bool {
 	for i := 0; i < 3; i++ {
-		if c[i] != cur[i] {
-			return c[i] > cur[i], nil
+		if a[i] != b[i] {
+			return a[i] > b[i]
 		}
 	}
-	return false, nil
+	return false
 }
 
 func (u *updater) run(current string) (updateOutcome, error) {
-	data, err := u.fetchVerified(manifestName, maxMetadataBytes)
+	source, err := u.releaseDir()
+	if err != nil {
+		return updateOutcome{}, err
+	}
+	data, err := u.fetchVerified(source, manifestName, maxMetadataBytes)
 	if err != nil {
 		return updateOutcome{}, err
 	}
@@ -189,7 +280,7 @@ func (u *updater) run(current string) (updateOutcome, error) {
 		return updateOutcome{}, fmt.Errorf("unsupported architecture %s", arch)
 	}
 	asset := "wolups-agent-linux-" + arch
-	binary, err := u.fetchVerified(asset, maxAgentBytes)
+	binary, err := u.fetchVerified(source, asset, maxAgentBytes)
 	if err != nil {
 		return updateOutcome{}, err
 	}
