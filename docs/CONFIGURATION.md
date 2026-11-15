@@ -67,13 +67,17 @@ timeout after its first wake packet, or the conditions are not met within 24 hou
 
 Templates are set in **Settings → Templates** and can be overridden per channel. Variables:
 
-`{event}` `{title}` `{message}` `{ups}` `{device}` `{battery}` `{runtime}` `{status}` `{threshold}` `{version}`
-`{duration}` `{error}` `{via}` `{time}`
+`{event}` `{title}` `{message}` `{ups}` `{device}` `{count}` `{battery}` `{runtime}` `{status}` `{threshold}`
+`{version}` `{duration}` `{error}` `{via}` `{time}`
 
 **Preview** shows a template filled in with an example event.
 
 A line whose variables are all empty for an event is left out, so a template can list values that only some
 events carry.
+
+Agent update events (available, updated, failed) that follow each other within a minute are sent as one event, at
+most 5 minutes after the first. `{device}` then lists every device and `{count}` is the number of agents. For a
+single agent `{count}` is empty.
 
 The preset menu in **Settings → Templates** fills in every event at once: Default, Minimalistic or Detailed, each
 also with icons. The icon presets write the message themselves instead of using `{message}`. Presets can be edited
