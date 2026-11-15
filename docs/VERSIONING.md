@@ -12,9 +12,11 @@ git tag -a v1.2.3 -m "WolUPS v1.2.3" && git push origin v1.2.3
 git tag -a agent-v1.2.3 -m "WolUPS agent v1.2.3" && git push origin agent-v1.2.3
 ```
 
-- Agent releases are always the repository's **latest** release. Installs, agent updates and the server's update
-  check all read `releases/latest/download`. Server releases are never marked latest, so do not mark them latest
-  by hand.
+- Server releases are the repository's **latest** release. Agent releases never are.
+- Installs, agent updates and the server's update check use the newest `agent-vX.Y.Z` release, found through the
+  GitHub API.
+- Agents older than 0.1.4 update from the latest release and cannot update once a server release is latest. Rerun
+  the install command without `--token` to upgrade them.
 - Agent and server versions do not need to match. The agent's `protocol_version` in `agent-release.json` decides
   compatibility, and the server ignores agent releases with a different protocol.
 - Releases up to `v0.1.2` shipped both together. Agent versions continue from there.

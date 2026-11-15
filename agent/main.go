@@ -93,7 +93,7 @@ func runEnroll(store *stateStore, args []string) error {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	server := fs.String("server", "", "WolUPS base URL")
 	token := fs.String("token", "", "one-time enrollment token")
-	releaseBase := fs.String("release-base", defaultReleaseBase, "HTTPS directory with agent releases")
+	releaseBase := fs.String("release-base", defaultReleaseBase, "GitHub releases page, or an HTTPS directory with one agent release")
 	allowHTTP := fs.Bool("allow-http", false, "allow a plain http server URL")
 	if err := fs.Parse(args); err != nil {
 		return err

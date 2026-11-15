@@ -219,6 +219,61 @@ func TestUpdateVerifiesChecksum(t *testing.T) {
 	}
 }
 
+func TestNewestAgentTag(t *testing.T) {
+	tag, err := newestAgentTag([]githubRelease{
+		{TagName: "v0.9.0"},
+		{TagName: "agent-v0.1.3"},
+		{TagName: "agent-v0.1.10"},
+		{TagName: "agent-v0.2.0", Prerelease: true},
+		{TagName: "agent-v0.3.0", Draft: true},
+		{TagName: "agent-v0.4.0-rc.1"},
+	})
+	if err != nil || tag != "agent-v0.1.10" {
+		t.Fatalf("got %q %v", tag, err)
+	}
+	if _, err := newestAgentTag([]githubRelease{{TagName: "v1.0.0"}}); err == nil {
+		t.Fatal("server release accepted as agent release")
+	}
+}
+
+func TestUpdateFromGitHubReleases(t *testing.T) {
+	manifest := []byte(`{"version":"0.2.0","protocol_version":1}`)
+	binary := []byte("agent-0.2.0")
+	dir := "/o/r/releases/download/agent-v0.2.0/"
+	files := map[string][]byte{
+		"/repos/o/r/releases": []byte(`[{"tag_name":"v9.0.0"},{"tag_name":"agent-v0.2.0"},` +
+			`{"tag_name":"agent-v0.1.3"}]`),
+		dir + "agent-release.json":              manifest,
+		dir + "agent-release.json.sha256":       []byte(sha(manifest) + "  agent-release.json\n"),
+		dir + "wolups-agent-linux-arm64":        binary,
+		dir + "wolups-agent-linux-arm64.sha256": []byte(sha(binary) + "  wolups-agent-linux-arm64\n"),
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(data)
+	}))
+	defer srv.Close()
+
+	// Both the current default and the address saved by older agents use the GitHub lookup.
+	for _, base := range []string{"https://github.com/o/r/releases", "https://github.com/o/r/releases/latest/download"} {
+		target := filepath.Join(t.TempDir(), "wolups-agent")
+		os.WriteFile(target, []byte("old"), 0o755)
+		u := &updater{releaseBase: base, binaryPath: target, arch: "arm64", client: srv.Client(),
+			apiURL: srv.URL, webURL: srv.URL, verify: func(string, string) error { return nil }}
+		out, err := u.run("0.1.3")
+		if err != nil || !out.Updated || out.LatestVersion != "0.2.0" {
+			t.Fatalf("%s: update failed: %+v %v", base, out, err)
+		}
+		if got, _ := os.ReadFile(target); string(got) != "agent-0.2.0" {
+			t.Fatalf("%s: binary not replaced: %q", base, got)
+		}
+	}
+}
+
 func TestServerURLValidation(t *testing.T) {
 	if _, err := validateServerURL("http://x.lan", false); err == nil {
 		t.Fatal("http accepted without --allow-http")

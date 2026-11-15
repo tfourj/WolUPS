@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
+import { newestAgentVersion } from "../src/server/agents/releases";
 import { patchSchema } from "../src/server/routes/util";
 import { cidrContains, parseCidr } from "../src/server/wol/cidr";
 import { magicPacket, normalizeMac, parseMac } from "../src/server/wol/magic";
@@ -40,6 +41,19 @@ describe("versions", () => {
     expect(isNewerVersion("v1.10.0", "1.2.0")).toBe(true);
     expect(isNewerVersion("1.0.0", "dev")).toBe(true);
     expect(isNewerVersion("garbage", "1.0.0")).toBe(false);
+  });
+
+  test("picks the newest stable agent release", () => {
+    const releases = [
+      { tag_name: "v9.0.0" },
+      { tag_name: "agent-v0.1.3" },
+      { tag_name: "agent-v0.1.10" },
+      { tag_name: "agent-v0.2.0", prerelease: true },
+      { tag_name: "agent-v0.3.0", draft: true },
+      { tag_name: "agent-v0.4.0-rc.1" },
+    ];
+    expect(newestAgentVersion(releases)).toBe("0.1.10");
+    expect(newestAgentVersion([{ tag_name: "v1.0.0" }])).toBeNull();
   });
 });
 
