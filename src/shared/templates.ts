@@ -50,6 +50,7 @@ type Sample = { title: string; message: string; vars?: Partial<TemplateVars> };
 const SAMPLE_VARS: TemplateVars = {
   ups: "Rack UPS",
   device: "nas",
+  count: "",
   battery: "42%",
   runtime: "14m 0s",
   status: "OB",
@@ -141,9 +142,9 @@ const SAMPLES: Record<EventType, Sample> = {
     vars: { ...AGENT_VARS, version: "1.5.0" },
   },
   agent_updated: {
-    title: "nas updated",
-    message: "Agent on nas updated from v1.4.0 to v1.5.0",
-    vars: { ...AGENT_VARS, version: "1.5.0" },
+    title: "3 agents updated",
+    message: "Agents on nas, pve and pi updated to v1.5.0",
+    vars: { ...AGENT_VARS, device: "nas, pve, pi", count: "3", version: "1.5.0" },
   },
   agent_update_failed: {
     title: "Agent update failed on nas",

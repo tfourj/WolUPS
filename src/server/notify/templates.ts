@@ -27,6 +27,8 @@ export function templateVars(event: TemplateEvent): TemplateVars {
     message: event.message,
     ups: str(d.ups),
     device: str(d.device),
+    // Set only when one notification covers several agents.
+    count: str(d.count),
     battery: d.battery === null || d.battery === undefined ? "" : `${d.battery}%`,
     runtime: typeof d.runtime === "number" ? formatRuntime(d.runtime) : "",
     status: str(d.status),
