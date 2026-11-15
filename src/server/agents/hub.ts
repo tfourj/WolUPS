@@ -16,6 +16,7 @@ import {
   type AgentMessage,
   type CommandType,
 } from "./protocol";
+import { queueAgentUpdateEvent } from "./update-events";
 
 const log = createLogger("agents");
 
@@ -138,11 +139,12 @@ class AgentHub {
       });
     }
     if (versionChanged) {
-      emitEvent({
-        type: "agent_updated",
+      queueAgentUpdateEvent("agent_updated", {
         deviceId: agent.deviceId,
+        device: device?.name ?? msg.info.hostname,
         title: `${device?.name ?? "Agent"} updated`,
         message: `Agent on ${device?.name ?? msg.info.hostname} updated from v${agent.version} to v${msg.info.version}`,
+        version: msg.info.version,
         data: { device: device?.name, version: msg.info.version, previousVersion: agent.version },
       });
     }

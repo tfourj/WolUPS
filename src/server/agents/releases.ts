@@ -2,12 +2,12 @@ import { and, eq, gt, inArray } from "drizzle-orm";
 import { db } from "../db/client";
 import { agents, commands, devices } from "../db/schema";
 import { env } from "../env";
-import { emitEvent } from "../events";
 import { createLogger } from "../logger";
 import { getSettings } from "../settings";
 import { isNewerVersion, parseVersion } from "../../shared/version";
 import { agentHub } from "./hub";
 import { PROTOCOL_VERSION } from "./protocol";
+import { queueAgentUpdateEvent } from "./update-events";
 
 const log = createLogger("releases");
 
@@ -108,11 +108,12 @@ function handleAgentRelease(agent: AgentRow, release: NonNullable<LatestRelease>
       .set({ latestVersion: release.version, updateCheckedAt: new Date() })
       .where(eq(agents.id, agent.id))
       .run();
-    emitEvent({
-      type: "agent_update_available",
+    queueAgentUpdateEvent("agent_update_available", {
       deviceId: agent.deviceId,
+      device: name,
       title: `Agent update available for ${name}`,
       message: `Agent v${release.version} is available for ${name} (running v${agent.version})`,
+      version: release.version,
       data: { device: name, version: release.version, currentVersion: agent.version },
     });
   }
@@ -209,11 +210,14 @@ agentHub.onAck((command, ack) => {
       .where(eq(agents.id, agent.id))
       .run();
     const device = db.select().from(devices).where(eq(devices.id, agent.deviceId)).get();
-    emitEvent({
-      type: "agent_update_failed",
+    const name = device?.name ?? agent.hostname ?? "agent";
+    queueAgentUpdateEvent("agent_update_failed", {
       deviceId: agent.deviceId,
-      title: `Agent update failed on ${device?.name ?? agent.hostname}`,
-      message: `Agent on ${device?.name ?? agent.hostname} could not update: ${ack.error ?? "unknown error"}`,
+      device: name,
+      title: `Agent update failed on ${name}`,
+      message: `Agent on ${name} could not update: ${ack.error ?? "unknown error"}`,
+      version: agent.version,
+      error: ack.error,
       data: { device: device?.name, version: agent.version, error: ack.error },
     });
     return;
