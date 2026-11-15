@@ -25,29 +25,54 @@ export function latestAgentRelease() {
   return { latest, error: lastError };
 }
 
+type GitHubRelease = { tag_name?: string; draft?: boolean; prerelease?: boolean };
+
+const AGENT_TAG = /^agent-v(\d+\.\d+\.\d+)$/;
+
+/** Version of the newest stable agent-vX.Y.Z release. Server releases (vX.Y.Z) are skipped. */
+export function newestAgentVersion(releases: GitHubRelease[]): string | null {
+  let best: string | null = null;
+  for (const release of releases) {
+    if (release.draft || release.prerelease) continue;
+    const version = AGENT_TAG.exec(release.tag_name ?? "")?.[1];
+    if (version && (!best || isNewerVersion(version, best))) best = version;
+  }
+  return best;
+}
+
 /**
- * Read the latest release's agent-release.json. Agent releases (agent-vX.Y.Z) are always the repository's latest
- * release, server releases never are. This is a release asset download, not a GitHub API call, so it does not count
- * against the API rate limit shared by everything on this IP.
+ * Find the newest agent-vX.Y.Z release and read its agent-release.json. Agent releases are never the repository's
+ * latest release (server releases are), so this lists releases through the GitHub API: one unauthenticated call per
+ * check, well within the hourly limit at the shortest check interval.
  */
 export async function fetchLatestRelease(): Promise<LatestRelease> {
-  const res = await fetch(`https://github.com/${env.agentRepo}/releases/latest/download/agent-release.json`, {
-    headers: { "User-Agent": "wolups" },
+  const headers = { "User-Agent": "wolups" };
+  const list = await fetch(`https://api.github.com/repos/${env.agentRepo}/releases?per_page=100`, {
+    headers: { ...headers, Accept: "application/vnd.github+json" },
     signal: AbortSignal.timeout(15_000),
   });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GitHub returned ${res.status}`);
+  if (list.status === 403 || list.status === 429) throw new Error("GitHub API rate limit reached, try again later");
+  if (!list.ok) throw new Error(`GitHub returned ${list.status} listing releases of ${env.agentRepo}`);
+  const latestVersion = newestAgentVersion((await list.json()) as GitHubRelease[]);
+  if (!latestVersion) return null;
+
+  const tag = `agent-v${latestVersion}`;
+  const res = await fetch(`https://github.com/${env.agentRepo}/releases/download/${tag}/agent-release.json`, {
+    headers,
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`could not read agent-release.json of ${tag} (GitHub returned ${res.status})`);
   const body = (await res.json()) as { version?: string; protocol_version?: number };
   const version = body.version ?? "";
-  if (!parseVersion(version)) {
-    throw new Error(`release version ${version || "(missing)"} is not a stable x.y.z version`);
+  if (!parseVersion(version) || version !== latestVersion) {
+    throw new Error(`${tag} has agent-release.json version ${version || "(missing)"}`);
   }
   if (body.protocol_version !== PROTOCOL_VERSION) {
     throw new Error(
       `release v${version} uses agent protocol ${body.protocol_version}, this server needs ${PROTOCOL_VERSION}`,
     );
   }
-  const url = `https://github.com/${env.agentRepo}/releases/tag/agent-v${version}`;
+  const url = `https://github.com/${env.agentRepo}/releases/tag/${tag}`;
   return { version, url, checkedAt: Date.now() };
 }
 
