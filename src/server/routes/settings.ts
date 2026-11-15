@@ -9,7 +9,8 @@ import { parseBody, patchSchema } from "./util";
 export const settingsRoutes = new Hono();
 
 function system() {
-  const release = latestAgentRelease();
+  const release = latestAgentRelease("device");
+  const nutRelease = latestAgentRelease("nut");
   return {
     version: VERSION,
     commit: COMMIT,
@@ -18,6 +19,8 @@ function system() {
     timezone: process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     latestAgent: release.latest,
     latestAgentError: release.error,
+    latestNutAgent: nutRelease.latest,
+    latestNutAgentError: nutRelease.error,
   };
 }
 

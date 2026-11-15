@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { db } from "../src/server/db/client";
-import { agents, devices } from "../src/server/db/schema";
+import { agents, devices, nutHosts } from "../src/server/db/schema";
 import { createEnrollmentToken, EnrollmentError, redeemEnrollment } from "../src/server/agents/enroll";
 import { generateSigningKey } from "../src/server/crypto/signing";
 
@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe("agent enrollment", () => {
   test("a token pairs one agent and can be retried with the same key only", () => {
-    const { token } = createEnrollmentToken(deviceId);
+    const { token } = createEnrollmentToken({ deviceId });
     const key = generateSigningKey().publicKeyRaw;
     const first = redeemEnrollment(token, key, info);
     expect(first.deviceId).toBe(deviceId);
@@ -28,18 +28,18 @@ describe("agent enrollment", () => {
   });
 
   test("expired and unknown tokens are rejected", () => {
-    const { token } = createEnrollmentToken(deviceId, new Date(Date.now() - 60 * 60_000));
+    const { token } = createEnrollmentToken({ deviceId }, new Date(Date.now() - 60 * 60_000));
     expect(() => redeemEnrollment(token, generateSigningKey().publicKeyRaw, info)).toThrow("invalid or expired");
     expect(() => redeemEnrollment("x".repeat(43), generateSigningKey().publicKeyRaw, info)).toThrow(EnrollmentError);
   });
 
   test("a new token revokes the previous one and re-pairing replaces the agent", () => {
-    const old = createEnrollmentToken(deviceId);
-    const fresh = createEnrollmentToken(deviceId);
+    const old = createEnrollmentToken({ deviceId });
+    const fresh = createEnrollmentToken({ deviceId });
     expect(() => redeemEnrollment(old.token, generateSigningKey().publicKeyRaw, info)).toThrow(EnrollmentError);
 
     const firstAgent = redeemEnrollment(fresh.token, generateSigningKey().publicKeyRaw, info);
-    const again = createEnrollmentToken(deviceId);
+    const again = createEnrollmentToken({ deviceId });
     const secondAgent = redeemEnrollment(again.token, generateSigningKey().publicKeyRaw, info);
     expect(secondAgent.replaced).toBe(true);
     expect(secondAgent.agentId).not.toBe(firstAgent.agentId);
@@ -48,19 +48,44 @@ describe("agent enrollment", () => {
   });
 
   test("rejects malformed public keys", () => {
-    const { token } = createEnrollmentToken(deviceId);
+    const { token } = createEnrollmentToken({ deviceId });
     expect(() => redeemEnrollment(token, "not-a-key", info)).toThrow();
   });
 });
 
 describe("automatic updates", () => {
   test("are on for new agents and kept when a device is paired again", () => {
-    const first = redeemEnrollment(createEnrollmentToken(deviceId).token, generateSigningKey().publicKeyRaw, info);
+    const first = redeemEnrollment(createEnrollmentToken({ deviceId }).token, generateSigningKey().publicKeyRaw, info);
     const row = () => db.select().from(agents).all().find((a) => a.deviceId === deviceId)!;
     expect(row().autoUpdate).toBe(true);
 
     db.update(agents).set({ autoUpdate: false }).where(eq(agents.id, first.agentId)).run();
-    redeemEnrollment(createEnrollmentToken(deviceId).token, generateSigningKey().publicKeyRaw, info);
+    redeemEnrollment(createEnrollmentToken({ deviceId }).token, generateSigningKey().publicKeyRaw, info);
     expect(row().autoUpdate).toBe(false);
+  });
+});
+
+const pair = (target: Parameters<typeof createEnrollmentToken>[0]) =>
+  redeemEnrollment(createEnrollmentToken(target).token, generateSigningKey().publicKeyRaw, info);
+
+describe("NUT host enrollment", () => {
+  test("pairs a NUT agent with its host and replaces it on the next pairing", () => {
+    const host = db.insert(nutHosts).values({ name: "pi" }).returning().get();
+    const first = pair({ nutHostId: host.id });
+    expect(first).toMatchObject({ kind: "nut", deviceId: null, nutHostId: host.id, deviceName: "pi", replaced: false });
+    const row = db.select().from(agents).where(eq(agents.id, first.agentId)).get();
+    expect(row).toMatchObject({ kind: "nut", deviceId: null, nutHostId: host.id });
+
+    const second = pair({ nutHostId: host.id });
+    expect(second.replaced).toBe(true);
+    expect(db.select().from(agents).where(eq(agents.nutHostId, host.id)).all()).toHaveLength(1);
+  });
+
+  test("each token pairs the kind of agent it was made for", () => {
+    const host = db.insert(nutHosts).values({ name: "pi2" }).returning().get();
+    const device = pair({ deviceId });
+    const nut = pair({ nutHostId: host.id });
+    expect(device).toMatchObject({ kind: "device", deviceId, nutHostId: null });
+    expect(nut).toMatchObject({ kind: "nut", deviceId: null });
   });
 });

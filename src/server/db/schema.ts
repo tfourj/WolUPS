@@ -86,10 +86,39 @@ export const settings = sqliteTable("settings", {
   value: text().notNull(),
 });
 
+/** A machine whose NUT setup a wolups-nut-agent manages. */
+export const nutHosts = sqliteTable("nut_hosts", {
+  id: uuid(),
+  name: text().notNull(),
+  online: bool().notNull().default(false),
+  lastSeenAt: ts(),
+  os: text(),
+  packageManager: text(),
+  nutVersion: text(),
+  configDir: text(),
+  listenAddress: text(),
+  localShutdown: bool().notNull().default(false),
+  /** Last health report from the agent. */
+  services: text({ mode: "json" }).$type<NutServices>(),
+  /** Problems already notified, so each is reported once until it recovers. */
+  problems: text({ mode: "json" }).$type<string[]>(),
+  createdAt: ts().notNull().default(now),
+});
+
+export type NutServices = {
+  upsd: string;
+  upsmon: string;
+  listening: boolean;
+  drivers: { ups: string; state: string }[];
+  reportedAt: number;
+};
+
 export const ups = sqliteTable("ups", {
   id: uuid(),
   name: text().notNull(),
   description: text(),
+  /** Set when a NUT host's agent manages this UPS. */
+  nutHostId: text().references(() => nutHosts.id, { onDelete: "set null" }),
   host: text().notNull(),
   port: integer().notNull().default(3493),
   upsName: text().notNull(),
@@ -189,10 +218,14 @@ export const outageDevices = sqliteTable(
 
 export const agents = sqliteTable("agents", {
   id: uuid(),
+  /** device: wolups-agent on a device. nut: wolups-nut-agent on a NUT host. */
+  kind: text().$type<AgentKind>().notNull().default("device"),
   deviceId: text()
-    .notNull()
     .unique()
     .references(() => devices.id, { onDelete: "cascade" }),
+  nutHostId: text()
+    .unique()
+    .references(() => nutHosts.id, { onDelete: "cascade" }),
   publicKey: text().notNull(),
   version: text(),
   os: text(),
@@ -211,12 +244,12 @@ export const agents = sqliteTable("agents", {
 });
 
 export type AgentInterface = { name: string; mac: string; cidrs: string[] };
+export type AgentKind = "device" | "nut";
 
 export const enrollmentTokens = sqliteTable("enrollment_tokens", {
   id: uuid(),
-  deviceId: text()
-    .notNull()
-    .references(() => devices.id, { onDelete: "cascade" }),
+  deviceId: text().references(() => devices.id, { onDelete: "cascade" }),
+  nutHostId: text().references(() => nutHosts.id, { onDelete: "cascade" }),
   tokenHash: text().notNull().unique(),
   expiresAt: ts().notNull(),
   usedAt: ts(),

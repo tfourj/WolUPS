@@ -14,6 +14,7 @@ import {
 
 function updated(device: string, version = "0.1.4"): AgentUpdateEvent {
   return {
+    agentId: `agent-${device}`,
     deviceId: `id-${device}`,
     device,
     title: `${device} updated`,

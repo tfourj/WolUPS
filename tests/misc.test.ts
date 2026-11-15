@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { newestAgentVersion } from "../src/server/agents/releases";
+import { newestAgentVersion, newestVersion } from "../src/server/agents/releases";
 import { patchSchema } from "../src/server/routes/util";
 import { cidrContains, parseCidr } from "../src/server/wol/cidr";
 import { magicPacket, normalizeMac, parseMac } from "../src/server/wol/magic";
@@ -54,6 +54,9 @@ describe("versions", () => {
     ];
     expect(newestAgentVersion(releases)).toBe("0.1.10");
     expect(newestAgentVersion([{ tag_name: "v1.0.0" }])).toBeNull();
+    const mixed = [{ tag_name: "agent-v0.2.0" }, { tag_name: "nut-agent-v0.1.0" }, { tag_name: "nut-agent-v0.1.2" }];
+    expect(newestAgentVersion(mixed)).toBe("0.2.0");
+    expect(newestVersion(mixed, "nut-agent-v")).toBe("0.1.2");
   });
 });
 

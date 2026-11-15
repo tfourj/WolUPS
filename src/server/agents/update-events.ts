@@ -10,7 +10,9 @@ export type AgentUpdateEventType = "agent_update_available" | "agent_updated" | 
 
 /** One agent's event, as it would be emitted on its own. */
 export type AgentUpdateEvent = {
-  deviceId: string;
+  agentId: string;
+  /** The device of a device agent, null for a NUT host. */
+  deviceId: string | null;
   device: string;
   title: string;
   message: string;
@@ -68,7 +70,7 @@ export function groupedEvent(type: AgentUpdateEventType, events: AgentUpdateEven
     data: {
       device: names.join(", "),
       devices: names,
-      deviceIds: sorted.map((event) => event.deviceId),
+      deviceIds: sorted.map((event) => event.deviceId).filter((id): id is string => !!id),
       count,
       version: versions.join(", "),
       ...(errors.length ? { error: errors.join("; ") } : {}),
@@ -92,7 +94,7 @@ export function flushAgentUpdateEvents(type: AgentUpdateEventType) {
 
 /**
  * Queue an agent update event. Updates usually reach every agent at once, so events of the same type are held
- * until none has arrived for GROUP_QUIET_MS and then sent as one. A later event from the same device replaces its
+ * until none has arrived for GROUP_QUIET_MS and then sent as one. A later event from the same agent replaces its
  * earlier one.
  */
 export function queueAgentUpdateEvent(type: AgentUpdateEventType, event: AgentUpdateEvent, now = Date.now()) {
@@ -100,7 +102,7 @@ export function queueAgentUpdateEvent(type: AgentUpdateEventType, event: AgentUp
   if (existing) clearTimeout(existing.timer);
   const events = existing?.events ?? new Map<string, AgentUpdateEvent>();
   const startedAt = existing?.startedAt ?? now;
-  events.set(event.deviceId, event);
+  events.set(event.agentId, event);
   const timer = setTimeout(() => flushAgentUpdateEvents(type), groupDelay(startedAt, now));
   groups.set(type, { events, startedAt, timer });
 }

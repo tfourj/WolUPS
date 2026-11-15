@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { redeemEnrollment, EnrollmentError } from "../agents/enroll";
 import { agentHub } from "../agents/hub";
+import { agentLabel } from "../agents/owner";
 import { enrollRequestSchema } from "../agents/protocol";
 import { clientIp } from "../client-ip";
 import { emitEvent } from "../events";
@@ -37,7 +38,7 @@ agentPublicRoutes.post("/enroll", async (c) => {
       type: "agent_enrolled",
       deviceId: result.deviceId,
       title: `${result.deviceName} paired`,
-      message: `Agent on ${parsed.data.info.hostname} paired with ${result.deviceName} (v${parsed.data.info.version})`,
+      message: `${agentLabel(result.kind)} on ${parsed.data.info.hostname} paired with ${result.deviceName} (v${parsed.data.info.version})`,
       data: { device: result.deviceName, version: parsed.data.info.version },
     });
     return c.json({

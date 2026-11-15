@@ -5,7 +5,8 @@ import { db } from "../db/client";
 import { agents, devices, ups } from "../db/schema";
 import { agentHub } from "../agents/hub";
 import { createEnrollmentToken } from "../agents/enroll";
-import { checkAgentUpdateNow, latestAgentRelease } from "../agents/releases";
+import { checkAgentUpdateNow } from "../agents/releases";
+import { serializeAgent } from "../agents/serialize";
 import { env } from "../env";
 import { emitEvent } from "../events";
 import { shutdownNow } from "../monitor/shutdown";
@@ -14,26 +15,12 @@ import { normalizeMac } from "../wol/magic";
 import { resolveMac } from "../wol/resolve-mac";
 import { checkWake } from "../wol/check";
 import { compareNames } from "../../shared/sort";
-import { isNewerVersion } from "../../shared/version";
 import { parseBody, patchSchema } from "./util";
 
 export const deviceRoutes = new Hono();
 
 type DeviceRow = typeof devices.$inferSelect;
 type AgentRow = typeof agents.$inferSelect;
-
-function serializeAgent(agent: AgentRow | null) {
-  if (!agent) return null;
-  const { publicKey, ...rest } = agent;
-  const latest = latestAgentRelease().latest?.version ?? agent.latestVersion;
-  return {
-    ...rest,
-    connected: agentHub.isConnected(agent.id),
-    keyFingerprint: publicKey.slice(0, 12),
-    latestVersion: latest ?? null,
-    updateAvailable: isNewerVersion(latest, agent.version),
-  };
-}
 
 function serialize(device: DeviceRow, agent: AgentRow | null, upsName: string | null) {
   return { ...device, upsName, agent: serializeAgent(agent) };
@@ -156,7 +143,7 @@ function installCommand(token: string) {
 deviceRoutes.post("/:id/enroll", (c) => {
   const device = db.select().from(devices).where(eq(devices.id, c.req.param("id"))).get();
   if (!device) return c.json({ error: "not found" }, 404);
-  const { token, expiresAt } = createEnrollmentToken(device.id);
+  const { token, expiresAt } = createEnrollmentToken({ deviceId: device.id });
   return c.json({
     token,
     expiresAt,
@@ -200,7 +187,7 @@ deviceRoutes.patch("/:id/agent", async (c) => {
   const agent = agentFor(c.req.param("id"));
   if (!agent) return c.json({ error: "no agent paired" }, 404);
   db.update(agents).set({ autoUpdate: body.autoUpdate }).where(eq(agents.id, agent.id)).run();
-  return c.json(loadDevice(agent.deviceId));
+  return c.json(loadDevice(c.req.param("id")));
 });
 
 deviceRoutes.post("/:id/agent/unpair", async (c) => {
@@ -214,10 +201,10 @@ deviceRoutes.post("/:id/agent/unpair", async (c) => {
   }
   agentHub.disconnect(agent.id);
   db.delete(agents).where(eq(agents.id, agent.id)).run();
-  const device = db.select().from(devices).where(eq(devices.id, agent.deviceId)).get();
+  const device = db.select().from(devices).where(eq(devices.id, c.req.param("id"))).get();
   emitEvent({
     type: "agent_disconnected",
-    deviceId: agent.deviceId,
+    deviceId: device?.id ?? null,
     title: `${device?.name ?? "Agent"} unpaired`,
     message: `Agent on ${device?.name ?? agent.hostname} was unpaired${body.force ? " (forced)" : ""}`,
     data: { device: device?.name, version: agent.version },
