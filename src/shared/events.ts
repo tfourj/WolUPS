@@ -17,6 +17,8 @@ export const EVENT_TYPES = [
   "agent_update_available",
   "agent_updated",
   "agent_update_failed",
+  "nut_service_failed",
+  "nut_service_recovered",
   "login",
   "test",
 ] as const;
@@ -41,6 +43,8 @@ export const EVENT_LABELS: Record<EventType, string> = {
   agent_update_available: "Agent update available",
   agent_updated: "Agent updated",
   agent_update_failed: "Agent update failed",
+  nut_service_failed: "NUT service failed",
+  nut_service_recovered: "NUT service recovered",
   login: "New sign-in",
   test: "Test notification",
 };
@@ -65,6 +69,8 @@ export const DEFAULT_EVENT_SEVERITY: Record<EventType, Severity> = {
   agent_update_available: "info",
   agent_updated: "success",
   agent_update_failed: "error",
+  nut_service_failed: "error",
+  nut_service_recovered: "success",
   login: "info",
   test: "info",
 };
@@ -82,6 +88,8 @@ export const DEFAULT_CHANNEL_EVENTS: EventType[] = [
   "device_recovered",
   "agent_updated",
   "agent_update_failed",
+  "nut_service_failed",
+  "nut_service_recovered",
 ];
 
 export const TEMPLATE_VARIABLES = [
