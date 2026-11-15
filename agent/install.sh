@@ -6,7 +6,9 @@
 # Run it as root (the default on Proxmox). It never calls sudo itself.
 set -eu
 
-RELEASE_BASE="https://github.com/tfourj/WolUPS/releases/latest/download"
+REPO="tfourj/WolUPS"
+# Empty means the newest agent-vX.Y.Z release on GitHub.
+RELEASE_BASE=""
 SCRIPT_URL="https://raw.githubusercontent.com/tfourj/WolUPS/main/agent/install.sh"
 BIN_PATH="/usr/local/bin/wolups-agent"
 STATE_DIR="/var/lib/wolups-agent"
@@ -103,9 +105,26 @@ if [ -n "$LOCAL_BINARY" ]; then
   say "Using local binary $LOCAL_BINARY"
   cp "$LOCAL_BINARY" "$TMP/$ASSET"
 else
+  # A GitHub releases page means the newest agent-vX.Y.Z release there, anything else is a fixed directory.
+  DOWNLOAD_BASE=""
+  case "$RELEASE_BASE" in
+    "") ;;
+    https://github.com/*/*/releases|https://github.com/*/*/releases/latest/download)
+      REPO="$(printf '%s' "$RELEASE_BASE" | sed 's#^https://github.com/\([^/]*/[^/]*\)/releases.*#\1#')" ;;
+    *) DOWNLOAD_BASE="$RELEASE_BASE" ;;
+  esac
+  if [ -z "$DOWNLOAD_BASE" ]; then
+    fetch "https://api.github.com/repos/$REPO/releases?per_page=100" "$TMP/releases.json" \
+      || fail "could not list releases of $REPO"
+    VERSION="$(tr ',' '\n' < "$TMP/releases.json" \
+      | sed -n 's/.*"tag_name": *"agent-v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' \
+      | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+    [ -n "$VERSION" ] || fail "no agent release found in $REPO"
+    DOWNLOAD_BASE="https://github.com/$REPO/releases/download/agent-v$VERSION"
+  fi
   say "Downloading $ASSET ..."
-  fetch "$RELEASE_BASE/$ASSET" "$TMP/$ASSET" || fail "download failed: $RELEASE_BASE/$ASSET"
-  fetch "$RELEASE_BASE/$ASSET.sha256" "$TMP/$ASSET.sha256" || fail "checksum download failed"
+  fetch "$DOWNLOAD_BASE/$ASSET" "$TMP/$ASSET" || fail "download failed: $DOWNLOAD_BASE/$ASSET"
+  fetch "$DOWNLOAD_BASE/$ASSET.sha256" "$TMP/$ASSET.sha256" || fail "checksum download failed"
   (cd "$TMP" && sha256sum -c "$ASSET.sha256" >/dev/null) || fail "checksum verification failed"
   say "Checksum verified"
 fi
@@ -121,11 +140,11 @@ mv -f "$BIN_PATH.new" "$BIN_PATH"
 say "Installed $("$BIN_PATH" version)"
 
 if [ -n "$TOKEN" ]; then
-  if [ -n "$ALLOW_HTTP" ]; then
-    "$BIN_PATH" enroll --server "$SERVER" --token "$TOKEN" --release-base "$RELEASE_BASE" --allow-http
-  else
-    "$BIN_PATH" enroll --server "$SERVER" --token "$TOKEN" --release-base "$RELEASE_BASE"
-  fi
+  # Without --release-base the agent updates from the newest agent-vX.Y.Z release on GitHub.
+  set -- enroll --server "$SERVER" --token "$TOKEN"
+  [ -z "$RELEASE_BASE" ] || set -- "$@" --release-base "$RELEASE_BASE"
+  [ -z "$ALLOW_HTTP" ] || set -- "$@" --allow-http
+  "$BIN_PATH" "$@"
 fi
 
 # The agent carries its own service file, so updates can refresh it later.
