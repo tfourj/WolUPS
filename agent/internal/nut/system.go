@@ -359,12 +359,14 @@ func readFile(path string) (string, error) {
 // Migrate moves sections from outside the WolUPS block into it as written, and every other managed section is
 // kept. DryRun only reports what would change.
 type ApplyRequest struct {
-	UPS           []Section `json:"ups"`
-	Remove        []string  `json:"remove,omitempty"`
-	Migrate       []string  `json:"migrate,omitempty"`
-	Listen        string    `json:"listen"`
-	LocalShutdown bool      `json:"localShutdown"`
-	DryRun        bool      `json:"dryRun,omitempty"`
+	UPS     []Section `json:"ups"`
+	Remove  []string  `json:"remove,omitempty"`
+	Migrate []string  `json:"migrate,omitempty"`
+	// Edit changes the description, port or serial of managed sections without rewriting them.
+	Edit          []SectionEdit `json:"edit,omitempty"`
+	Listen        string        `json:"listen"`
+	LocalShutdown bool          `json:"localShutdown"`
+	DryRun        bool          `json:"dryRun,omitempty"`
 }
 
 // FileChange is one file an apply changes, with passwords masked.
@@ -414,7 +416,9 @@ func (s *System) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	newUpsConf, err := RenderUpsConf(upsConf, req.UPS, req.Remove, req.Migrate)
+	newUpsConf, err := RenderUpsConf(upsConf, UpsConfChange{
+		Upsert: req.UPS, Remove: req.Remove, Migrate: req.Migrate, Edit: req.Edit,
+	})
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -520,6 +524,84 @@ type Status struct {
 	Upsmon    string         `json:"upsmon"`
 	Listening bool           `json:"listening"`
 	Drivers   []DriverStatus `json:"drivers"`
+	// UpsmonEnabled is whether nut-monitor starts at boot.
+	UpsmonEnabled bool `json:"upsmonEnabled"`
+	// Monitors are the UPS upsmon watches, from every MONITOR line in upsmon.conf.
+	Monitors []MonitorStatus `json:"monitors"`
+}
+
+// MonitorStatus is one UPS upsmon watches and whether its upsd can be reached from this host.
+type MonitorStatus struct {
+	System    string `json:"system"`
+	Reachable bool   `json:"reachable"`
+	Error     string `json:"error,omitempty"`
+}
+
+var monitorSystem = regexp.MustCompile(`(?m)^\s*MONITOR\s+(\S+)`)
+
+// checkMonitor connects to the upsd of a MONITOR system such as ups@host or ups@host:port.
+func checkMonitor(system string) MonitorStatus {
+	status := MonitorStatus{System: system}
+	_, address, ok := strings.Cut(system, "@")
+	if !ok || address == "" {
+		address = "localhost"
+	}
+	host, port := address, strconv.Itoa(NUTPort)
+	if h, p, err := net.SplitHostPort(address); err == nil {
+		host, port = h, p
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 2*time.Second)
+	if err != nil {
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) {
+			status.Error = "no such host"
+		} else {
+			status.Error = "cannot connect"
+		}
+		return status
+	}
+	conn.Close()
+	status.Reachable = true
+	return status
+}
+
+// monitors checks every MONITOR line in upsmon.conf.
+func (s *System) monitors() []MonitorStatus {
+	out := []MonitorStatus{}
+	data, err := readFile(filepath.Join(s.ConfigDir(), "upsmon.conf"))
+	if err != nil {
+		return out
+	}
+	for _, match := range monitorSystem.FindAllStringSubmatch(data, 16) {
+		out = append(out, checkMonitor(match[1]))
+	}
+	return out
+}
+
+// SetUpsmon starts and enables nut-monitor, or stops and disables it. Turning it off also turns off WolUPS's
+// "shut down this host", so a later NUT restart does not start it again. Its config is left as it is.
+func (s *System) SetUpsmon(ctx context.Context, enabled bool) error {
+	acc, err := s.LoadAccounts()
+	if err != nil {
+		return err
+	}
+	if enabled {
+		if len(s.monitors()) == 0 {
+			return errors.New("upsmon.conf has no MONITOR lines; turn on \"Shut down this host\" in the setup wizard")
+		}
+		if out, err := s.Run(ctx, "systemctl", "enable", "--now", "nut-monitor.service"); err != nil {
+			return fmt.Errorf("systemctl enable nut-monitor: %v: %s", err, strings.TrimSpace(out))
+		}
+		return nil
+	}
+	if out, err := s.Run(ctx, "systemctl", "disable", "--now", "nut-monitor.service"); err != nil {
+		return fmt.Errorf("systemctl disable nut-monitor: %v: %s", err, strings.TrimSpace(out))
+	}
+	if acc.LocalShutdown {
+		acc.LocalShutdown = false
+		return s.SaveAccounts(acc)
+	}
+	return nil
 }
 
 type DriverStatus struct {
@@ -530,7 +612,15 @@ type DriverStatus struct {
 // Status checks upsd, upsmon, the listen address and each UPS's driver. Drivers are asked through upsd, so they
 // are only listed while upsd runs.
 func (s *System) Status(ctx context.Context) Status {
-	st := Status{Upsd: s.unitState(ctx, "nut-server"), Upsmon: s.unitState(ctx, "nut-monitor"), Drivers: []DriverStatus{}}
+	st := Status{
+		Upsd:     s.unitState(ctx, "nut-server"),
+		Upsmon:   s.unitState(ctx, "nut-monitor"),
+		Drivers:  []DriverStatus{},
+		Monitors: s.monitors(),
+	}
+	if out, _ := s.Run(ctx, "systemctl", "is-enabled", "nut-monitor.service"); strings.TrimSpace(out) == "enabled" {
+		st.UpsmonEnabled = true
+	}
 	acc, _ := s.LoadAccounts()
 	if acc.Listen != "" {
 		conn, err := net.DialTimeout("tcp", net.JoinHostPort(acc.Listen, strconv.Itoa(NUTPort)), 2*time.Second)

@@ -16,6 +16,7 @@ export const NUT_TIMEOUTS: Record<NutCommandType, number> = {
   nut_instcmd: 60_000,
   nut_setvar: 60_000,
   nut_logs: 30_000,
+  nut_upsmon: 60_000,
 };
 
 /** Values written into ups.conf. Passwords have their own rule. */
@@ -107,6 +108,23 @@ export const applySchema = z.object({
   localShutdown: z.boolean().default(false),
   /** Move the imported sections into the WolUPS block instead of only monitoring them. */
   migrate: z.boolean().default(false),
+  /** Change the description, port or serial of managed UPS without rewriting their sections. */
+  edit: z
+    .array(
+      z.object({
+        name: z.string().regex(UPS_NAME),
+        displayName: z.string().trim().min(1).max(100),
+        set: z
+          .object({
+            desc: z.string().max(100).regex(/^[^"\\\n]*$/),
+            port: confValue,
+            serial: z.union([confValue, z.literal("")]),
+          })
+          .partial(),
+      }),
+    )
+    .max(16)
+    .default([]),
 });
 
 export type ApplyInput = z.infer<typeof applySchema>;

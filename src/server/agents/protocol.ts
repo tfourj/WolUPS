@@ -30,6 +30,7 @@ export const NUT_COMMANDS = [
   "nut_instcmd",
   "nut_setvar",
   "nut_logs",
+  "nut_upsmon",
 ] as const;
 export const COMMAND_TYPES = [...COMMON_COMMANDS, ...DEVICE_COMMANDS, ...NUT_COMMANDS] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
@@ -117,6 +118,13 @@ export const agentMessageSchema = z.discriminatedUnion("type", [
     upsmon: z.string().max(32),
     listening: z.boolean(),
     drivers: z.array(z.object({ ups: z.string().max(64), state: z.string().max(32) })).max(32),
+    upsmonEnabled: z.boolean().optional(),
+    monitors: z
+      .array(
+        z.object({ system: z.string().max(200), reachable: z.boolean(), error: z.string().max(100).optional() }),
+      )
+      .max(16)
+      .optional(),
   }),
 ]);
 

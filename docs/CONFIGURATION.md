@@ -57,7 +57,8 @@ Choose **Add NUT host** in **UPS** and follow the steps:
 1. **Install.** Run the install command on that machine as root, like the device agent.
 2. **Check.** If NUT is missing, **Install NUT** installs it with apt, dnf or pacman. An existing NUT setup is
    shown with a choice: **Migrate to WolUPS** or **Keep my config**.
-3. **Scan.** Find UPS units over USB or SNMP (v1, v2c or v3). UPS already in `ups.conf` are listed too.
+3. **Scan.** Find UPS units over USB or SNMP (v1, v2c or v3). UPS already in `ups.conf` are recognised by serial
+   number and listed as set up instead of being offered again.
 4. **Configure.** Pick the address upsd listens on. The WolUPS server must reach it on port 3493. Every file
    change is shown before anything is written.
 5. **Apply.** The agent writes the config and restarts NUT. WolUPS adds each UPS once it can read it.
@@ -71,9 +72,13 @@ WolUPS can manage them; **Keep my config** leaves them where they are and only m
 lines stay either way, and listen addresses upsd already serves are not added again. A UPS you added to WolUPS by
 hand for that host is taken over, so its devices and history stay.
 
-**Manage** in a UPS menu runs instant commands, changes writable settings and removes the UPS from NUT. The host
+**Manage** in a UPS menu runs instant commands, changes writable settings, edits the UPS's name, description,
+port and serial, and removes it from NUT. The host
 card menu adds more UPS, restarts NUT and shows its logs. **NUT service failed** and **NUT service recovered**
-notify you when a driver, upsd or upsmon stops or upsd stops listening.
+notify you when a driver, upsd or upsmon stops, upsd stops listening, or upsmon cannot reach a UPS it monitors.
+
+upsmon only shuts down the machine it runs on; WolUPS does not need it. **Turn off upsmon** in the host card menu
+stops and disables it (its config stays), for example when it monitors an address that no longer resolves.
 
 ```bash
 wolups-nut-agent status              # pairing and version
