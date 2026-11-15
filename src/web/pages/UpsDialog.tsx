@@ -10,9 +10,17 @@ import { formatRuntime } from "@/lib/format";
 import { useAction } from "@/lib/mutations";
 import type { Ups, UpsSnapshot } from "@/lib/types";
 
-type Form = { name: string; host: string; port: string; upsName: string; username: string; password: string };
+type Form = {
+  name: string;
+  description: string;
+  host: string;
+  port: string;
+  upsName: string;
+  username: string;
+  password: string;
+};
 
-const empty: Form = { name: "", host: "", port: "3493", upsName: "ups", username: "", password: "" };
+const empty: Form = { name: "", description: "", host: "", port: "3493", upsName: "ups", username: "", password: "" };
 
 export function UpsDialog({ open, onOpenChange, ups }: { open: boolean; onOpenChange: (o: boolean) => void; ups?: Ups }) {
   const [form, setForm] = useState<Form>(empty);
@@ -26,6 +34,7 @@ export function UpsDialog({ open, onOpenChange, ups }: { open: boolean; onOpenCh
       ups
         ? {
             name: ups.name,
+            description: ups.description ?? "",
             host: ups.host,
             port: String(ups.port),
             upsName: ups.upsName,
@@ -51,6 +60,7 @@ export function UpsDialog({ open, onOpenChange, ups }: { open: boolean; onOpenCh
     () => {
       const body = {
         name: form.name,
+        description: form.description || null,
         host: form.host,
         port: Number(form.port) || 3493,
         upsName: form.upsName,
@@ -100,9 +110,20 @@ export function UpsDialog({ open, onOpenChange, ups }: { open: boolean; onOpenCh
             onOpenChange(false);
           }}
         >
-          <Field label="Name" htmlFor="ups-name">
-            <Input id="ups-name" value={form.name} onChange={set("name")} placeholder="Rack UPS" required />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Name" htmlFor="ups-name">
+              <Input id="ups-name" value={form.name} onChange={set("name")} placeholder="Rack UPS" required />
+            </Field>
+            <Field label="Description" htmlFor="ups-description">
+              <Input
+                id="ups-description"
+                value={form.description}
+                onChange={set("description")}
+                placeholder="Compute"
+                maxLength={200}
+              />
+            </Field>
+          </div>
           <div className="grid grid-cols-[1fr_6rem] gap-3">
             <Field label="NUT host" htmlFor="ups-host">
               <Input id="ups-host" value={form.host} onChange={set("host")} placeholder="192.168.1.10" required />

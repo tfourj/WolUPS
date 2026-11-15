@@ -113,7 +113,12 @@ export function UpsPage() {
                 return (
                   <TableRow key={u.id}>
                     <TableCell className="pl-4">
-                      <p className="font-medium">{u.name}</p>
+                      <p className="font-medium">
+                        {u.name}
+                        {u.description && (
+                          <span className="text-muted-foreground font-normal"> · {u.description}</span>
+                        )}
+                      </p>
                       <p className="text-muted-foreground text-xs">
                         {u.upsName}@{u.host}
                         {u.port !== 3493 ? `:${u.port}` : ""}
