@@ -113,6 +113,7 @@ describe("applying a NUT config", () => {
     listen: "192.168.1.5",
     localShutdown: false,
     migrate: false,
+    edit: [],
   };
   const applied = async () => ({
     ok: true,
@@ -198,6 +199,7 @@ describe("existing NUT setups", () => {
     listen: "192.168.1.5",
     localShutdown: false,
     migrate: true,
+    edit: [],
   };
 
   test("a UPS added by hand for the host is taken over, with its devices", async () => {
@@ -230,7 +232,8 @@ describe("existing NUT setups", () => {
     expect(outcome).toEqual({ ok: true, upsIds: [manual.id] });
     expect(sent[0]).toMatchObject({ migrate: ["rack"] });
     const adopted = db.select().from(ups).where(eq(ups.id, manual.id)).get()!;
-    expect(adopted).toMatchObject({ name: "My rack", nutHostId: hostId, host: "192.168.1.5", username: "wolups" });
+    // The entry keeps its id and devices; its name follows the wizard, which shows the current name by default.
+    expect(adopted).toMatchObject({ name: "Rack", nutHostId: hostId, host: "192.168.1.5", username: "wolups" });
     expect(db.select().from(devices).where(eq(devices.id, device.id)).get()?.upsId).toBe(manual.id);
     expect(db.select().from(ups).where(eq(ups.id, other.id)).get()?.nutHostId).toBeNull();
   });
@@ -247,5 +250,52 @@ describe("existing NUT setups", () => {
     });
     expect(args).toMatchObject({ dryRun: true, migrate: ["rack"] });
     expect(outcome).toEqual({ ok: true, changes, adopt: [] });
+  });
+});
+
+describe("editing a managed UPS", () => {
+  test("sends the edit to the agent, verifies it and renames the entry", async () => {
+    const hostId = db.insert(nutHosts).values({ name: "pi-edit", listenAddress: "192.168.1.7" }).returning().get().id;
+    const row = db
+      .insert(ups)
+      .values({ name: "1 2200R", host: "192.168.1.7", upsName: "ups1", nutHostId: hostId })
+      .returning()
+      .get();
+    let sent: Record<string, unknown> = {};
+    const verified: string[] = [];
+    const outcome = await applyNutConfig(
+      hostId,
+      {
+        ups: [],
+        imported: [],
+        listen: "192.168.1.7",
+        localShutdown: false,
+        migrate: false,
+        edit: [{ name: "ups1", displayName: "Rack A", set: { desc: "Rack A", serial: "BBB" } }],
+      },
+      {
+        run: async (_h, _t, args) => {
+          sent = args ?? {};
+          return { ok: true, result: { files: [], monitorUser: "wolups", monitorPassword: "pw" } };
+        },
+        verify: async (_target, name) => {
+          verified.push(name);
+          return {};
+        },
+      },
+    );
+    expect(outcome).toEqual({ ok: true, upsIds: [row.id] });
+    expect(sent).toMatchObject({ ups: [], edit: [{ name: "ups1", set: { desc: "Rack A", serial: "BBB" } }] });
+    expect(verified).toEqual(["ups1"]);
+    expect(db.select().from(ups).where(eq(ups.id, row.id)).get()?.name).toBe("Rack A");
+  });
+
+  test("only description, port and serial can be edited", () => {
+    const base = { ups: [], imported: [], listen: "10.0.0.2" };
+    const edit = (set: Record<string, string>) => ({ ...base, edit: [{ name: "ups1", displayName: "A", set }] });
+    expect(applySchema.safeParse(edit({ serial: "" })).success).toBe(true);
+    expect(applySchema.safeParse(edit({ port: "" })).success).toBe(false);
+    expect(applySchema.safeParse(edit({ desc: 'a "b"' })).success).toBe(false);
+    expect(applySchema.parse(edit({ driver: "x" })).edit[0].set).toEqual({});
   });
 });

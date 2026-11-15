@@ -70,6 +70,7 @@ function applyArgs(input: ApplyInput, dryRun = false) {
   return {
     ups: input.ups.map(({ displayName: _, ...section }) => section),
     migrate: input.migrate ? input.imported.map((entry) => entry.name) : [],
+    edit: input.edit.map(({ displayName: _, ...edit }) => edit),
     listen: input.listen,
     localShutdown: input.localShutdown,
     ...(dryRun ? { dryRun: true } : {}),
@@ -91,7 +92,7 @@ export async function previewNutConfig(
   const run = deps.run ?? runNutCommand;
   const ack = await run(hostId, "nut_apply", applyArgs(input, true));
   if (!ack.ok) return { ok: false, error: ack.error ?? "the NUT agent could not prepare the config" };
-  const names = [...input.ups, ...input.imported].map((entry) => entry.name);
+  const names = [...input.ups, ...input.imported, ...input.edit].map((entry) => entry.name);
   return {
     ok: true,
     changes: Array.isArray(ack.result?.changes) ? (ack.result.changes as FileChange[]) : [],
@@ -117,7 +118,7 @@ export async function applyNutConfig(
   const password = typeof ack.result?.monitorPassword === "string" ? ack.result.monitorPassword : null;
   if (!username || !password) return { ok: false, error: "the NUT agent did not return the monitor login", files };
 
-  const wanted = [...input.ups, ...input.imported];
+  const wanted = [...input.ups, ...input.imported, ...input.edit];
   const target: NutTarget = { host: input.listen, port: NUT_PORT, username, password, timeoutMs: 5_000 };
   const error = await verifyFromServer(
     target,
@@ -151,7 +152,11 @@ export async function applyNutConfig(
           .get() ?? adopt.get(entry.name);
       const values = { host: input.listen, port: NUT_PORT, username, passwordEnc, nutHostId: hostId };
       if (existing) {
-        tx.update(ups).set(values).where(eq(ups.id, existing.id)).run();
+        // The wizard sends the display name it shows, so this also renames an entry.
+        tx.update(ups)
+          .set({ ...values, name: entry.displayName })
+          .where(eq(ups.id, existing.id))
+          .run();
         ids.push(existing.id);
       } else {
         const row = tx
