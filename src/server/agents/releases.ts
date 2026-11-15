@@ -26,8 +26,9 @@ export function latestAgentRelease() {
 }
 
 /**
- * Read the latest release's agent-release.json. This is a release asset download, not a GitHub
- * API call, so it does not count against the API rate limit shared by everything on this IP.
+ * Read the latest release's agent-release.json. Agent releases (agent-vX.Y.Z) are always the repository's latest
+ * release, server releases never are. This is a release asset download, not a GitHub API call, so it does not count
+ * against the API rate limit shared by everything on this IP.
  */
 export async function fetchLatestRelease(): Promise<LatestRelease> {
   const res = await fetch(`https://github.com/${env.agentRepo}/releases/latest/download/agent-release.json`, {
@@ -46,7 +47,7 @@ export async function fetchLatestRelease(): Promise<LatestRelease> {
       `release v${version} uses agent protocol ${body.protocol_version}, this server needs ${PROTOCOL_VERSION}`,
     );
   }
-  const url = `https://github.com/${env.agentRepo}/releases/tag/v${version}`;
+  const url = `https://github.com/${env.agentRepo}/releases/tag/agent-v${version}`;
   return { version, url, checkedAt: Date.now() };
 }
 
