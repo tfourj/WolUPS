@@ -9,10 +9,12 @@ import {
   applyNutConfig,
   previewNutConfig,
   removeNutUps,
+  syncUpsAddress,
   verifyFromServer,
 } from "../src/server/nut-hosts/apply";
 import { applySchema, redactPayload, snmpSchema } from "../src/server/nut-hosts/commands";
 import { healthChanges, nutProblems } from "../src/server/nut-hosts/health";
+import { serverAddresses } from "../src/server/net/local";
 import { box } from "../src/server/secrets";
 
 const host = { name: "pi", localShutdown: false, upsNames: new Map([["rack", "Rack UPS"]]) };
@@ -184,6 +186,50 @@ describe("applying a NUT config", () => {
     expect(removed).toEqual({ ok: true });
     expect(sent).toEqual([{ ups: [], remove: ["rack"], listen: "192.168.1.5", localShutdown: false }]);
     expect(names()).toEqual(["old", "spare"]);
+  });
+
+  // An interface of the machine running the tests, as an agent on it would report it.
+  const own = [...serverAddresses()][0]?.split(" ");
+  const localIface = own ? [{ name: "eth0", mac: own[0], cidrs: [`${own[1]}/24`] }] : [];
+
+  test.skipIf(!own)("reads the UPS on 127.0.0.1 when WolUPS runs on the NUT host", async () => {
+    const hostId = db.insert(nutHosts).values({ name: "same-box" }).returning().get().id;
+    const agent = db
+      .insert(agents)
+      .values({ kind: "nut", nutHostId: hostId, publicKey: "pk-local", interfaces: localIface })
+      .returning()
+      .get();
+    const targets: string[] = [];
+    const outcome = await applyNutConfig(hostId, input, {
+      run: applied,
+      verify: async (target) => targets.push(target.host),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(targets).toEqual(["127.0.0.1", "127.0.0.1"]);
+    const hosts = () =>
+      db
+        .select()
+        .from(ups)
+        .where(eq(ups.nutHostId, hostId))
+        .all()
+        .map((r) => r.host);
+    expect(hosts()).toEqual(["127.0.0.1", "127.0.0.1"]);
+    expect(db.select().from(nutHosts).where(eq(nutHosts.id, hostId)).get()?.listenAddress).toBe("192.168.1.5");
+
+    // Once the agent reports another machine's interfaces, the entries go back to the listen address.
+    const other = [{ name: "eth0", mac: "02:00:00:00:00:99", cidrs: ["192.168.1.5/24"] }];
+    db.update(agents).set({ interfaces: other }).where(eq(agents.id, agent.id)).run();
+    syncUpsAddress(hostId);
+    expect(hosts()).toEqual(["192.168.1.5", "192.168.1.5"]);
+
+    // An entry changed by hand stays, and a report without interfaces changes nothing.
+    db.update(ups).set({ host: "nas.lan" }).where(eq(ups.upsName, "old")).run();
+    db.update(agents).set({ interfaces: [] }).where(eq(agents.id, agent.id)).run();
+    syncUpsAddress(hostId);
+    expect(hosts().sort()).toEqual(["192.168.1.5", "nas.lan"]);
+    db.update(agents).set({ interfaces: localIface }).where(eq(agents.id, agent.id)).run();
+    syncUpsAddress(hostId);
+    expect(hosts().sort()).toEqual(["127.0.0.1", "nas.lan"]);
   });
 
   test("reports the agent's error", async () => {

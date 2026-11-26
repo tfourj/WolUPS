@@ -1,10 +1,15 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { agentHub } from "../agents/hub";
 import { db } from "../db/client";
 import { agents, nutHosts, ups } from "../db/schema";
+import { createLogger } from "../logger";
+import { LOOPBACK, sameMachine } from "../net/local";
 import { fetchUpsSnapshot, type NutTarget } from "../nut/client";
 import { upsMonitor } from "../monitor/ups-monitor";
 import { box } from "../secrets";
 import { runNutCommand, type ApplyInput } from "./commands";
+
+const log = createLogger("nut-hosts");
 
 const NUT_PORT = 3493;
 /** Drivers can take a while to start after the config is written. */
@@ -41,14 +46,53 @@ export async function verifyFromServer(
   return null;
 }
 
+/** Whether this NUT host is the machine WolUPS runs on. */
+export function isLocalHost(hostId: string): boolean {
+  const agent = db.select().from(agents).where(eq(agents.nutHostId, hostId)).get();
+  return sameMachine(agent?.interfaces);
+}
+
+/** The address the server reads this host's UPS on: 127.0.0.1 on its own machine, so LAN changes do not matter. */
+export function upsAddress(hostId: string, listen: string): string {
+  return isLocalHost(hostId) ? LOOPBACK : listen;
+}
+
 /** Names and addresses a UPS entry added by hand may use for this host's NUT server. */
 export function hostAddresses(hostId: string, listen?: string): string[] {
   const host = db.select().from(nutHosts).where(eq(nutHosts.id, hostId)).get();
   const agent = db.select().from(agents).where(eq(agents.nutHostId, hostId)).get();
   const ips = (agent?.interfaces ?? []).flatMap((iface) => iface.cidrs.map((cidr) => cidr.split("/")[0]));
   const names = [agent?.hostname, agent?.hostname ? `${agent.hostname}.local` : null, host?.name, host?.listenAddress];
-  return [...new Set([...ips, ...names, listen].filter((v): v is string => !!v).map((v) => v.toLowerCase()))];
+  const loopback = sameMachine(agent?.interfaces) ? [LOOPBACK, "localhost"] : [];
+  const all = [...ips, ...names, ...loopback, listen];
+  return [...new Set(all.filter((v): v is string => !!v).map((v) => v.toLowerCase()))];
 }
+
+/**
+ * Point the host's UPS entries at 127.0.0.1 while it is the machine WolUPS runs on, and back at its listen address
+ * once it is not. Entries pointing anywhere else were changed by hand and stay.
+ */
+export function syncUpsAddress(hostId: string) {
+  const host = db.select().from(nutHosts).where(eq(nutHosts.id, hostId)).get();
+  const agent = db.select().from(agents).where(eq(agents.nutHostId, hostId)).get();
+  // Without interfaces, for example during a network restart, there is nothing to decide on.
+  if (!host?.listenAddress || !agent?.interfaces?.length) return;
+  const address = sameMachine(agent.interfaces) ? LOOPBACK : host.listenAddress;
+  const changed = db
+    .update(ups)
+    .set({ host: address })
+    .where(and(eq(ups.nutHostId, hostId), inArray(ups.host, [LOOPBACK, host.listenAddress]), ne(ups.host, address)))
+    .returning({ id: ups.id })
+    .all();
+  if (changed.length === 0) return;
+  log.info("NUT host address changed", { host: host.name, address, ups: changed.length });
+  upsMonitor.pollNow();
+}
+
+agentHub.onConnect((agentId) => {
+  const agent = db.select().from(agents).where(eq(agents.id, agentId)).get();
+  if (agent?.kind === "nut" && agent.nutHostId) syncUpsAddress(agent.nutHostId);
+});
 
 /**
  * UPS entries added by hand that point at this host's NUT server with one of the given UPS names. Applying takes
@@ -101,7 +145,8 @@ export async function previewNutConfig(
 }
 
 /**
- * Write the NUT config on the host, check from the server that every UPS can be read on the listen address, then
+ * Write the NUT config on the host, check from the server that every UPS can be read on the listen address (or
+ * 127.0.0.1 when WolUPS runs on the host), then
  * create or update the UPS entries. Entries added by hand for the same UPS are taken over. Other UPS of the host
  * stay as they are. Nothing is created when the server cannot read a UPS.
  */
@@ -119,7 +164,8 @@ export async function applyNutConfig(
   if (!username || !password) return { ok: false, error: "the NUT agent did not return the monitor login", files };
 
   const wanted = [...input.ups, ...input.imported, ...input.edit];
-  const target: NutTarget = { host: input.listen, port: NUT_PORT, username, password, timeoutMs: 5_000 };
+  const address = upsAddress(hostId, input.listen);
+  const target: NutTarget = { host: address, port: NUT_PORT, username, password, timeoutMs: 5_000 };
   const error = await verifyFromServer(
     target,
     wanted.map((entry) => entry.name),
@@ -130,7 +176,7 @@ export async function applyNutConfig(
     return {
       ok: false,
       files,
-      error: `${error}. Check that the WolUPS server can reach ${input.listen} on port ${NUT_PORT}.`,
+      error: `${error}. Check that the WolUPS server can reach ${address} on port ${NUT_PORT}.`,
     };
   }
 
@@ -150,7 +196,7 @@ export async function applyNutConfig(
           .from(ups)
           .where(and(eq(ups.nutHostId, hostId), eq(ups.upsName, entry.name)))
           .get() ?? adopt.get(entry.name);
-      const values = { host: input.listen, port: NUT_PORT, username, passwordEnc, nutHostId: hostId };
+      const values = { host: address, port: NUT_PORT, username, passwordEnc, nutHostId: hostId };
       if (existing) {
         // The wizard sends the display name it shows, so this also renames an entry.
         tx.update(ups)
