@@ -19,14 +19,16 @@ const (
 
 // PersistedState is everything the agent needs to reconnect. It is stored root-only (0600).
 type PersistedState struct {
-	ServerURL       string           `json:"server_url"`
-	AgentID         string           `json:"agent_id"`
-	PrivateKey      string           `json:"private_key"`       // base64url Ed25519 seed
-	ServerPublicKey string           `json:"server_public_key"` // base64url raw Ed25519 key
-	ReleaseBase     string           `json:"release_base"`
-	DeviceName      string           `json:"device_name,omitempty"`
-	EnrolledAt      int64            `json:"enrolled_at"`
-	Processed       map[string]int64 `json:"processed,omitempty"`
+	ServerURL       string `json:"server_url"`
+	AgentID         string `json:"agent_id"`
+	PrivateKey      string `json:"private_key"`       // base64url Ed25519 seed
+	ServerPublicKey string `json:"server_public_key"` // base64url raw Ed25519 key
+	ReleaseBase     string `json:"release_base"`
+	DeviceName      string `json:"device_name,omitempty"`
+	EnrolledAt      int64  `json:"enrolled_at"`
+	// ServerLocal is set once the server URL resolved to this machine, so it is dialed through 127.0.0.1.
+	ServerLocal bool             `json:"server_local,omitempty"`
+	Processed   map[string]int64 `json:"processed,omitempty"`
 }
 
 func (s *PersistedState) privateKey() (ed25519.PrivateKey, error) {
@@ -129,6 +131,18 @@ func (s *StateStore) markProcessed(id string, now time.Time) (bool, error) {
 	state.Processed[id] = now.UnixMilli()
 	pruneProcessed(state.Processed, maxProcessed)
 	return true, s.saveLocked(state)
+}
+
+// setServerLocal stores whether the server runs on this machine.
+func (s *StateStore) setServerLocal(local bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	state.ServerLocal = local
+	return s.saveLocked(state)
 }
 
 func pruneProcessed(values map[string]int64, limit int) {
