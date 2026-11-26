@@ -27,6 +27,7 @@ WolUPS/
 │   │   ├── auth/                    Better Auth and two-factor setup, login event hook, sessions
 │   │   ├── crypto/                  AES-GCM secret storage, Ed25519 signing
 │   │   ├── nut/                     NUT protocol client and parser
+│   │   ├── net/                     Ping, DNS lookup and same-machine detection
 │   │   ├── monitor/                 UPS polling, outages, shutdown and wake rules, presence
 │   │   ├── agents/                  Agent protocol, enrollment, WebSocket hub, release checks
 │   │   ├── nut-hosts/               NUT agent commands, apply and verify, health events

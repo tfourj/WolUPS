@@ -119,6 +119,7 @@ export function NutHostCards({
           host.nutVersion ? `NUT v${host.nutVersion}` : "NUT not installed",
           host.agent?.version ? `agent v${host.agent.version}` : null,
           host.listenAddress,
+          host.sameMachine ? "same machine as WolUPS" : null,
         ].filter(Boolean);
         return (
           <Card key={host.id} className="py-4">

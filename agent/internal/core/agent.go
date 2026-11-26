@@ -126,8 +126,10 @@ func (a *Agent) session(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	loopback := false
 	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
+		HTTPClient: a.serverClient(&loopback),
 		HTTPHeader: map[string][]string{"User-Agent": {a.opts.Component.Name + "/" + a.opts.Component.Version}},
 	})
 	cancel()
@@ -176,7 +178,11 @@ func (a *Agent) session(ctx context.Context) error {
 		}
 		switch msg.Type {
 		case "welcome":
-			log.Printf("connected to %s as %q", a.opts.State.ServerURL, msg.Device)
+			via := ""
+			if loopback {
+				via = " through 127.0.0.1"
+			}
+			log.Printf("connected to %s%s as %q", a.opts.State.ServerURL, via, msg.Device)
 			for _, loop := range a.opts.Loops {
 				go loop(sessionCtx, func(v any) error { return a.write(sessionCtx, v) })
 			}

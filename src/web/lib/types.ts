@@ -204,6 +204,8 @@ export type NutHost = {
   problems: string[] | null;
   agent: Agent | null;
   interfaces: { name: string; mac: string; cidrs: string[] }[];
+  /** WolUPS runs on this host, so it reads the UPS on 127.0.0.1. */
+  sameMachine: boolean;
   ups: { id: string; name: string; upsName: string }[];
 };
 

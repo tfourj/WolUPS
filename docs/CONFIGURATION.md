@@ -49,6 +49,8 @@ curl -fsSL https://raw.githubusercontent.com/tfourj/WolUPS/main/agent/uninstall.
 
 If you unpair an offline agent, run `wolups-agent reset --confirm` on the device before pairing it again.
 
+An agent on the machine WolUPS runs on connects through 127.0.0.1, so a network restart does not cut it off.
+
 ## NUT hosts
 
 The NUT agent sets up NUT on the machine your UPS is plugged into (Linux with systemd: amd64, arm64 or armv7).
@@ -71,6 +73,9 @@ With an existing setup, **Migrate to WolUPS** moves your UPS sections into the W
 WolUPS can manage them; **Keep my config** leaves them where they are and only monitors them. Your users and upsmon
 lines stay either way, and listen addresses upsd already serves are not added again. A UPS you added to WolUPS by
 hand for that host is taken over, so its devices and history stay.
+
+When WolUPS runs on the NUT host with `network_mode: host`, the server reads its UPS on 127.0.0.1 instead of the
+listen address, and the host card shows **same machine as WolUPS**.
 
 **Manage** in a UPS menu runs instant commands, changes writable settings, edits the UPS's name, description,
 port and serial, and removes it from NUT. The host
