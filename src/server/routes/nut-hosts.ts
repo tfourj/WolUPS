@@ -11,7 +11,7 @@ import { env } from "../env";
 import { emitEvent } from "../events";
 import { nutTarget } from "../monitor/ups-monitor";
 import { fetchUpsControls } from "../nut/client";
-import { adoptableUps, applyNutConfig, previewNutConfig, removeNutUps } from "../nut-hosts/apply";
+import { adoptableUps, applyNutConfig, isLocalHost, previewNutConfig, removeNutUps } from "../nut-hosts/apply";
 import {
   applySchema,
   CONF_VALUE,
@@ -40,7 +40,13 @@ function serializeHost(host: HostRow) {
     .from(ups)
     .where(eq(ups.nutHostId, host.id))
     .all();
-  return { ...host, agent: serializeAgent(agent), interfaces: agent?.interfaces ?? [], ups: upsRows };
+  return {
+    ...host,
+    agent: serializeAgent(agent),
+    interfaces: agent?.interfaces ?? [],
+    sameMachine: isLocalHost(host.id),
+    ups: upsRows,
+  };
 }
 
 function enrollment(hostId: string) {
