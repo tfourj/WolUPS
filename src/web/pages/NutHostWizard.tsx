@@ -540,7 +540,14 @@ export function NutHostWizard({
 
           {step === "configure" && (
             <div className="grid gap-4">
-              <Field label="Listen on" help="The WolUPS server connects to this address on port 3493.">
+              <Field
+                label="Listen on"
+                help={
+                  host?.sameMachine
+                    ? "WolUPS runs on this host and connects through 127.0.0.1 on port 3493."
+                    : "The WolUPS server connects to this address on port 3493."
+                }
+              >
                 <Select value={listen} onValueChange={setListen}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Pick an address" />
