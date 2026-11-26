@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
+import { sameMachine } from "../src/server/net/local";
 import { newestAgentVersion, newestVersion } from "../src/server/agents/releases";
 import { patchSchema } from "../src/server/routes/util";
 import { cidrContains, parseCidr } from "../src/server/wol/cidr";
@@ -142,5 +143,20 @@ describe("matching scanned UPS to ups.conf", () => {
     expect(matchScanned([usb(), usb()], [one]).size).toBe(0);
     const snmp = { driver: "snmp-ups", port: "10.0.0.5" };
     expect(matchScanned([snmp], [{ name: "apc", driver: "snmp-ups", port: "10.0.0.5" }]).get(0)).toBe("apc");
+  });
+});
+
+describe("same machine detection", () => {
+  const own = new Set(["aa:bb:cc:dd:ee:01 192.168.1.5", "02:42:0a:0b:0c:0d 172.17.0.1"]);
+
+  test("matches an interface with the same MAC and address", () => {
+    expect(sameMachine([{ name: "eth0", mac: "AA:BB:CC:DD:EE:01", cidrs: ["192.168.1.5/24"] }], own)).toBe(true);
+    expect(sameMachine([{ name: "docker0", mac: "02:42:0a:0b:0c:0d", cidrs: ["172.17.0.1/16"] }], own)).toBe(true);
+  });
+
+  test("another machine with the same Docker address or a copied MAC is not the same machine", () => {
+    expect(sameMachine([{ name: "docker0", mac: "02:42:99:99:99:99", cidrs: ["172.17.0.1/16"] }], own)).toBe(false);
+    expect(sameMachine([{ name: "eth0", mac: "aa:bb:cc:dd:ee:01", cidrs: ["192.168.1.6/24"] }], own)).toBe(false);
+    expect(sameMachine(null, own)).toBe(false);
   });
 });
